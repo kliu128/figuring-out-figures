@@ -193,3 +193,4 @@ cython_debug/
 scicap_data
 lightning_logs
 *.ckpt
+tb_logs

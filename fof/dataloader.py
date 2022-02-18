@@ -11,8 +11,9 @@ from torchtyping import TensorType
 
 
 class ScicapDataset(Dataset):
-    def __init__(self, experiment: str, split: str, transform: Callable = None):
+    def __init__(self, experiment: str, split: str, transform: Callable = None, limit: int = None):
         self.transform = transform
+        self.limit = limit
 
         root = Path("./scicap_data")
         self.metadata_dir = root / "SciCap-Caption-All" / split
@@ -28,7 +29,10 @@ class ScicapDataset(Dataset):
             ".png", ".json") for name in self.metadata_files]
 
     def __len__(self):
-        return len(self.metadata_files)
+        if self.limit is None:
+            return len(self.metadata_files)
+        else:
+            return min(self.limit, len(self.metadata_files))
 
     def __getitem__(self, idx) -> Tuple[TensorType[3, "height", "width"], dict]:
         with open(self.metadata_dir / self.metadata_files[idx]) as f:
@@ -41,20 +45,18 @@ class ScicapDataset(Dataset):
 
 
 class ScicapDataModule(pl.LightningDataModule):
-    def __init__(self, experiment: str, transform, batch_size: int = 32):
+    def __init__(self, experiment: str, transform, batch_size: int = 32, limit: int = None):
         super().__init__()
-        self.train_dset = ScicapDataset(experiment, "train", transform)
-        self.test_dset = ScicapDataset(experiment, "test", transform)
-        self.val_dset = ScicapDataset(experiment, "val", transform)
+        self.train_dset = ScicapDataset(experiment, "train", transform, limit)
+        self.test_dset = ScicapDataset(experiment, "test", transform, limit)
+        self.val_dset = ScicapDataset(experiment, "val", transform, limit)
         self.batch_size = batch_size
-        assert len(self.train_dset) > len(self.test_dset) and \
-            len(self.train_dset) > len(self.test_dset)
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size)
+        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=8)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size)
+        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=8)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size)
+        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=8)
