@@ -9,8 +9,13 @@ torchvision = "*"
 torchaudio = "*"
 transformers = "*"
 pytorch-lightning = "*"
+einops = "*"
+torchtyping = "*"
+clip = {git = "https://github.com/openai/CLIP.git"}
 
 [dev-packages]
+autopep8 = "*"
+pytest = "*"
 
 [requires]
 python_version = "3.8"
