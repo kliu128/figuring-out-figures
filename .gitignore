@@ -191,6 +191,7 @@ cython_debug/
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,jupyternotebooks
 
 scicap_data
+scicap_data.zip
 lightning_logs
 *.ckpt
 tb_logs

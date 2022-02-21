@@ -11,8 +11,12 @@ transformers = "*"
 pytorch-lightning = "*"
 einops = "*"
 torchtyping = "*"
-clip = {git = "https://github.com/openai/CLIP.git"}
 wandb = "*"
+torchtext = "*"
+datasets = "*"
+sklearn = "*"
+nltk = "*"
+rouge-score = "*"
 
 [dev-packages]
 autopep8 = "*"
@@ -20,3 +24,6 @@ pytest = "*"
 
 [requires]
 python_version = "3.8"
+
+[packages.clip]
+git = "https://github.com/openai/CLIP.git"
