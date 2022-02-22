@@ -8,10 +8,15 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from torchvision.io import read_image
 from torchtyping import TensorType
+from torchvision import transforms
 
 
 class ScicapDataset(Dataset):
-    def __init__(self, experiment: str, split: str, transform: Callable = None, limit: int = None):
+    def __init__(self,
+                 experiment: str,
+                 split: str,
+                 transform: Callable,
+                 limit: int = None):
         self.transform = transform
         self.limit = limit
 
@@ -45,7 +50,13 @@ class ScicapDataset(Dataset):
 
 
 class ScicapDataModule(pl.LightningDataModule):
-    def __init__(self, experiment: str, transform, batch_size: int = 32, limit: int = None):
+    def __init__(
+            self,
+            experiment: str, transform=transforms.Compose([
+                transforms.Resize((224, 224)),
+            ]),
+            batch_size: int = 32,
+            limit: int = None):
         super().__init__()
         self.train_dset = ScicapDataset(experiment, "train", transform, limit)
         self.test_dset = ScicapDataset(experiment, "test", transform, limit)

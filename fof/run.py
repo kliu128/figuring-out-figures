@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from encdec import EncoderDecoderModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from torchvision import transforms
 from torchtyping import TensorType
@@ -15,6 +16,7 @@ from einops import rearrange
 from dataloader import ScicapDataModule
 
 from datasets import load_metric
+
 
 class ClipGPT2Model(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -38,12 +40,12 @@ class ClipGPT2Model(pl.LightningModule):
         self.rouge_metric = load_metric('rouge')
 
     @staticmethod
-    def add_model_specific_args(parent_parser):
-        parser = parent_parser.add_argument_group("ClipGPT2Model")
-        return parent_parser
+    def add_model_specific_args(parser):
+        parser = parser.add_argument_group("ClipGPT2Model")
+        return parser
 
     def forward(self, figure, labels: List[str]):
-        B = len(labels) 
+        B = len(labels)
 
         # Encode figure using CLIP model
         image_encoding = self.image_encoder.encode_image(figure)
@@ -76,11 +78,11 @@ class ClipGPT2Model(pl.LightningModule):
         y_hat, loss = self(
             figure, metadata)
         return loss
-    
+
     # BlEU score, ROUGE score
 
     def validation_step(self, batch, batch_idx):
-        figure, labels = batch # input, output
+        figure, labels = batch  # input, output
         # breakpoint()
         # y_hat is model prediction (i.e., logits), labels is gold
         # y_hat.shape = [2, 44, 50257]
@@ -89,23 +91,25 @@ class ClipGPT2Model(pl.LightningModule):
 
         # PROCESSING FOR BLEU SCORE
         # model_predictions.shape = [2, 44]
-        tokenized_labels = [ [label.split()] for label in labels ] # for bleu_metric.compute input
-        model_predictions = [ self.tokenizer.decode(model_predictions_idxs[i]).split() 
-            for i in range(model_predictions_idxs.shape[0]) ]
-        bleu_score = self.bleu_metric.compute(predictions=model_predictions, references=tokenized_labels)
+        # for bleu_metric.compute input
+        tokenized_labels = [[label.split()] for label in labels]
+        model_predictions = [self.tokenizer.decode(model_predictions_idxs[i]).split()
+                             for i in range(model_predictions_idxs.shape[0])]
+        bleu_score = self.bleu_metric.compute(
+            predictions=model_predictions, references=tokenized_labels)
 
         # PROCESSING FOR ROUGE SCORE
-        model_predictions = [ self.tokenizer.decode(model_predictions_idxs[i]) 
-            for i in range(model_predictions_idxs.shape[0]) ]
-        rouge_score = self.rouge_metric.compute(predictions=model_predictions, references=labels)
+        model_predictions = [self.tokenizer.decode(model_predictions_idxs[i])
+                             for i in range(model_predictions_idxs.shape[0])]
+        rouge_score = self.rouge_metric.compute(
+            predictions=model_predictions, references=labels)
 
         # LOGGING
         # TODO: what rouge score do we want to log? Use print(self.rouge_metric)
         # to see manual
-        self.log('validation/metrics', 
-            {'BLEU Score': bleu_score['bleu'], 'ROUGE Score': rouge_score['rouge1'].mid.fmeasure})
+        self.log('validation/metrics',
+                 {'BLEU Score': bleu_score['bleu'], 'ROUGE Score': rouge_score['rouge1'].mid.fmeasure})
         self.log('loss', loss)
-
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -117,7 +121,7 @@ if __name__ == "__main__":
     parser.add_argument("mode", choices=["train", "validate"])
     parser.add_argument("--exp", default="x")
     parser.add_argument("--model", type=str,
-                        default="clip+gpt2", choices=["clip+gpt2"])
+                        default="clip+gpt2", choices=["clip+gpt2", "encdec"])
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=None)
     # Extract model name from temp args
@@ -126,6 +130,8 @@ if __name__ == "__main__":
     # let the model add what it wants
     if temp_args.model == "clip+gpt2":
         parser = ClipGPT2Model.add_model_specific_args(parser)
+    if temp_args.model == "encdec":
+        parser = EncoderDecoderModel.add_model_specific_args(parser)
 
     args = parser.parse_args()
     val_callback = ModelCheckpoint(
@@ -141,12 +147,11 @@ if __name__ == "__main__":
     dict_args = vars(args)
     if args.model == "clip+gpt2":
         model = ClipGPT2Model(**dict_args)
+    elif args.model == "encdec":
+        model = EncoderDecoderModel(**dict_args)
 
     datamodule = ScicapDataModule(
-        "First-Sentence", transform=transforms.Compose([
-            # TODO This converts it into and out of PIL, inefficient
-            transforms.ToPILImage(),
-            image_preprocessor]),
+        "First-Sentence",
         batch_size=args.batch_size,
         limit=args.limit)
 
