@@ -22,6 +22,7 @@ class EncoderDecoderModel(pl.LightningModule):
 
         self.model = model
         self.image_processor = tr.CLIPFeatureExtractor(
+            # Skip resize since the datamodule already resized it
             do_resize=False,
             do_center_crop=False,
         )
@@ -43,6 +44,7 @@ class EncoderDecoderModel(pl.LightningModule):
         return image
 
     def forward(self, image, labels):
+        # Tokenize the text into [input_ids]
         text = self.text_tokenizer(
             list(labels), padding=True, truncation=True, return_tensors="pt")
         output = self.model(
@@ -53,14 +55,10 @@ class EncoderDecoderModel(pl.LightningModule):
             # inputs: <start> A B C D
             # labels: A       B C D <end>
             labels=text["input_ids"].to(self.device),
-            output_attentions=True,
         )
-
-        # Sanity check that cross attention is working
-        assert output.cross_attentions[0].mean() != 0
         return output
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx: int):
         figure, metadata = batch
         image = self.preprocess_image(figure)
         output = self(
@@ -77,7 +75,7 @@ class EncoderDecoderModel(pl.LightningModule):
 
         return output.loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx: int):
         figure, metadata = batch
         image = self.preprocess_image(figure).to(self.device)
         output = self(image, metadata)

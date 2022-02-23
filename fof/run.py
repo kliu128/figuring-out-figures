@@ -142,8 +142,6 @@ if __name__ == "__main__":
     trainer = pl.Trainer.from_argparse_args(
         args, callbacks=[], logger=logger)
 
-    _, image_preprocessor = clip.load("ViT-B/32")
-
     dict_args = vars(args)
     if args.model == "clip+gpt2":
         model = ClipGPT2Model(**dict_args)
