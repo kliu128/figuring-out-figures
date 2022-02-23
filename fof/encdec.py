@@ -19,8 +19,10 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, **kwargs):
+    def __init__(self, lr: int, **kwargs):
         super().__init__()
+        self.save_hyperparameters()
+
         encoder = ExtensibleEncoder()
         gpt2 = tr.AutoModelForCausalLM.from_pretrained(
             "distilgpt2", add_cross_attention=True)
@@ -44,7 +46,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
         # breakpoint()
 
-        self.lr = 1e-5
+        self.lr = lr
 
         self.bleu_metric = load_metric('bleu')
         self.rouge_metric = load_metric('rouge')
@@ -128,4 +130,4 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr)
+        return torch.optim.AdamW(self.parameters(), lr=self.lr)

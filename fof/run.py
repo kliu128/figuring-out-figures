@@ -126,6 +126,7 @@ if __name__ == "__main__":
                         default="clip+gpt2", choices=["clip+gpt2", "encdec"])
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=5e-5)
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args()
 
