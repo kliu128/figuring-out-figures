@@ -28,7 +28,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained("gpt2")
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
-        self.lr = 1e-4
+        self.lr = 1e-5
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -43,8 +43,6 @@ class EncoderDecoderModel(pl.LightningModule):
         return image
 
     def forward(self, image, labels):
-        B = len(labels)
-
         text = self.text_tokenizer(
             list(labels), padding=True, truncation=True, return_tensors="pt")
         output = self.model(
@@ -68,6 +66,15 @@ class EncoderDecoderModel(pl.LightningModule):
         output = self(
             image, metadata)
         self.log("train/loss", output.loss)
+
+        # Print samples for debugging
+        # generated = self.model.generate(
+        #     image.to(self.device), return_dict_in_generate=True, do_sample=True,
+        #     bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
+        # decoded: List[str] = self.text_tokenizer.batch_decode(
+        #     generated.sequences, skip_special_tokens=True)
+        # print(metadata[0], "<->", decoded[0])
+
         return output.loss
 
     def validation_step(self, batch, batch_idx):
@@ -75,9 +82,10 @@ class EncoderDecoderModel(pl.LightningModule):
         image = self.preprocess_image(figure).to(self.device)
         output = self(image, metadata)
         self.log("val/loss", output.loss)
-        # Use top-p sampling with 0.9 as the probability
+        # Use sampling to generate sentences
         generated = self.model.generate(
-            image, return_dict_in_generate=True, do_sample=True, top_p=0.9)
+            image.to(self.device), return_dict_in_generate=True, do_sample=True,
+            bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)
         return output.loss
