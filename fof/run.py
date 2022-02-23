@@ -1,3 +1,5 @@
+from pytorch_lightning import Trainer
+from pytorch_lightning.loggers import WandbLogger
 import argparse
 from typing import List
 
@@ -138,9 +140,11 @@ if __name__ == "__main__":
         save_top_k=3, mode="min", monitor="val/loss")
     epoch_callback = ModelCheckpoint(
         every_n_epochs=10)
+
+    # wandb_logger = WandbLogger(name=args.exp, project="figuring-out-figures")
     logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
-        args, callbacks=[], logger=logger)
+        args, callbacks=[val_callback, epoch_callback], logger=logger)
 
     dict_args = vars(args)
     if args.model == "clip+gpt2":
