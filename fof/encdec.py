@@ -108,18 +108,24 @@ class EncoderDecoderModel(pl.LightningModule):
         # for bleu_metric.compute input
         tokenized_labels = [[label.split()] for label in labels]
         model_predictions = [decode.split() for decode in decoded]
-        bleu_score = self.bleu_metric.compute(
-            predictions=model_predictions, references=tokenized_labels)
+        try:
+            bleu_score = self.bleu_metric.compute(
+                predictions=model_predictions, references=tokenized_labels)
+            self.log('val/bleu_score', bleu_score['bleu'])
+        except Exception as e:
+            print(e)
 
-        # PROCESSING FOR ROUGE SCORE
-        rouge_score = self.rouge_metric.compute(
-            predictions=decoded, references=labels)
+        try:
+            # PROCESSING FOR ROUGE SCORE
+            rouge_score = self.rouge_metric.compute(
+                predictions=decoded, references=labels)
+            # LOGGING
+            # TODO: what rouge score do we want to log? Use print(self.rouge_metric)
+            # to see manual
+            self.log('val/rouge_score', rouge_score['rouge1'].mid.fmeasure)
+        except Exception as e:
+            print(e)
 
-        # LOGGING
-        # TODO: what rouge score do we want to log? Use print(self.rouge_metric)
-        # to see manual
-        self.log('val/bleu_score', bleu_score['bleu'])
-        self.log('val/rouge_score', rouge_score['rouge1'].mid.fmeasure)
         return output.loss
 
     def configure_optimizers(self):
