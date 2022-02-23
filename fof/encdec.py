@@ -23,7 +23,7 @@ class EncoderDecoderModel(pl.LightningModule):
         super().__init__()
         encoder = ExtensibleEncoder()
         gpt2 = tr.AutoModelForCausalLM.from_pretrained(
-            "distilgpt2", add_cross_attention=True)
+            "gpt2", add_cross_attention=True)
 
         model = tr.VisionEncoderDecoderModel(
             encoder=encoder.clip, decoder=gpt2)
@@ -40,9 +40,8 @@ class EncoderDecoderModel(pl.LightningModule):
             do_resize=False,
             do_center_crop=False,
         )
-        self.text_tokenizer = tr.AutoTokenizer.from_pretrained("distilgpt2")
+        self.text_tokenizer = tr.AutoTokenizer.from_pretrained("gpt2")
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
-        # breakpoint()
 
         self.lr = 1e-5
 
@@ -55,28 +54,32 @@ class EncoderDecoderModel(pl.LightningModule):
         return parent_parser
 
     def preprocess_image(self, figure):
-        # images = torch.split(figure, split_size_or_sections=1)
-        # squeezed_tensors = list(map(torch.squeeze, images))
-        # image = self.image_processor(images=squeezed_tensors)
-        # image = torch.stack(image["pixel_values"])
-        return figure
+        images = torch.split(figure.to("cpu"), split_size_or_sections=1)
+        squeezed_tensors = list(map(torch.squeeze, images))
+        image = self.image_processor(images=squeezed_tensors)
+        image = torch.stack(image["pixel_values"])
+        return image
 
     def forward(self, image, labels):
+        # Tokenize the text into [input_ids]
+        text = self.text_tokenizer(
+            list(labels), padding=True, truncation=True, return_tensors="pt")
         output = self.model(
-            pixel_values=image,
+            pixel_values=image.to(self.device),
             # Decoder input ids and attention masks are automatically generated
             # by shifting the input ids to the right and adding a start token
             # for causal LM, e.g.
             # inputs: <start> A B C D
             # labels: A       B C D <end>
-            labels=labels,
+            labels=text["input_ids"].to(self.device),
         )
         return output
 
     def training_step(self, batch, batch_idx: int):
-        figure, metadata = batch["figure"], batch["labels"]
+        figure, metadata = batch
         image = self.preprocess_image(figure)
-        output = self(image, metadata)
+        output = self(
+            image, metadata)
         self.log("train/loss", output.loss)
 
         # Print samples for debugging
@@ -90,21 +93,19 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_step(self, batch, batch_idx: int):
-        figure, labels = batch["figure"], batch["labels"]
-        image = self.preprocess_image(figure)
+        figure, labels = batch
+        image = self.preprocess_image(figure).to(self.device)
         output = self(image, labels)
         self.log("val/loss", output.loss)
         # Use sampling to generate sentences
         generated = self.model.generate(
-            image, return_dict_in_generate=True, do_sample=True,
+            image.to(self.device), return_dict_in_generate=True, do_sample=True,
             bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)
         # PROCESSING FOR BLEU SCORE
         # model_predictions.shape = [2, 44]
         # for bleu_metric.compute input
-        labels: List[str] = self.text_tokenizer.batch_decode(
-            labels, skip_special_tokens=True)
         tokenized_labels = [[label.split()] for label in labels]
         model_predictions = [decode.split() for decode in decoded]
         bleu_score = self.bleu_metric.compute(
