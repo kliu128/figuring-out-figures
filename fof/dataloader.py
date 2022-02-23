@@ -64,10 +64,10 @@ class ScicapDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=8)
+        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=8)
+        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=8)
+        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
