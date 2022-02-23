@@ -155,7 +155,8 @@ if __name__ == "__main__":
     datamodule = ScicapDataModule(
         "First-Sentence",
         batch_size=args.batch_size,
-        limit=args.limit)
+        limit=args.limit,
+        tokenizer=model.text_tokenizer)
 
     if args.mode == "train":
         trainer.tune(model, datamodule=datamodule)
