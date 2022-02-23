@@ -15,6 +15,8 @@ class EncoderDecoderModel(pl.LightningModule):
 
         model = tr.VisionEncoderDecoderModel(encoder=clip, decoder=gpt2)
         # use GPT2's eos_token as the pad as well as eos token
+        # TODO is this line correct?
+        model.config.decoder_start_token_id = model.config.decoder.bos_token_id
         model.config.eos_token_id = model.config.decoder.eos_token_id
         model.config.pad_token_id = model.config.eos_token_id
 
@@ -47,8 +49,11 @@ class EncoderDecoderModel(pl.LightningModule):
             list(labels), padding=True, truncation=True, return_tensors="pt")
         output = self.model(
             pixel_values=image.to(self.device),
-            decoder_input_ids=text["input_ids"].to(self.device),
-            decoder_attention_mask=text["attention_mask"].to(self.device),
+            # Decoder input ids and attention masks are automatically generated
+            # by shifting the input ids to the right and adding a start token
+            # for causal LM, e.g.
+            # inputs: <start> A B C D
+            # labels: A       B C D <end>
             labels=text["input_ids"].to(self.device),
             output_attentions=True,
         )
@@ -72,10 +77,9 @@ class EncoderDecoderModel(pl.LightningModule):
         self.log("val/loss", output.loss)
         # Use top-p sampling with 0.9 as the probability
         generated = self.model.generate(
-            image, return_dict_in_generate=True, top_p=0.9)
+            image, return_dict_in_generate=True, do_sample=True, top_p=0.9)
         decoded: List[str] = self.text_tokenizer.batch_decode(
-            generated, skip_special_tokens=True)
-
+            generated.sequences, skip_special_tokens=True)
         return output.loss
 
     def configure_optimizers(self):

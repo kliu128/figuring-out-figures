@@ -135,12 +135,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     val_callback = ModelCheckpoint(
-        save_top_k=3, mode="min", monitor="val_loss")
+        save_top_k=3, mode="min", monitor="val/loss")
     epoch_callback = ModelCheckpoint(
         every_n_epochs=10)
     logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
-        args, callbacks=[val_callback, epoch_callback], logger=logger)
+        args, callbacks=[], logger=logger)
 
     _, image_preprocessor = clip.load("ViT-B/32")
 
