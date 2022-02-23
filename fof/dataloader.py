@@ -46,7 +46,7 @@ class ScicapDataset(Dataset):
 
         if self.transform:
             figure = self.transform(figure)
-        return figure, metadata["2-normalized"]["2-1-basic-num"]["caption"]
+        return figure, metadata["0-originally-extracted"]
 
 
 class ScicapDataModule(pl.LightningDataModule):

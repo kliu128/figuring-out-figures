@@ -2,18 +2,31 @@ from typing import List
 import pytorch_lightning as pl
 import transformers as tr
 import torch
+import torch.nn as nn
+
+
+class ExtensibleEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.clip = tr.CLIPVisionModel.from_pretrained(
+            "openai/clip-vit-base-patch32")
+        self.config = self.clip.config
+        self.main_input_name = self.clip.main_input_name
+
+    def forward(self, *args, **kwargs):
+        return self.clip(*args, **kwargs)
 
 
 class EncoderDecoderModel(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
-
-        clip = tr.CLIPVisionModel.from_pretrained(
-            "openai/clip-vit-base-patch32")
+        encoder = ExtensibleEncoder()
         gpt2 = tr.AutoModelForCausalLM.from_pretrained(
             "gpt2", add_cross_attention=True)
 
-        model = tr.VisionEncoderDecoderModel(encoder=clip, decoder=gpt2)
+        model = tr.VisionEncoderDecoderModel(
+            encoder=encoder.clip, decoder=gpt2)
+        model.encoder = encoder
         # use GPT2's eos_token as the pad as well as eos token
         # TODO is this line correct?
         model.config.decoder_start_token_id = model.config.decoder.bos_token_id
