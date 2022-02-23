@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 import transformers as tr
 import torch
 import torch.nn as nn
+from datasets import load_metric
 
 
 class ExtensibleEncoder(nn.Module):
@@ -43,6 +44,9 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
         self.lr = 1e-5
+
+        self.bleu_metric = load_metric('bleu')
+        self.rouge_metric = load_metric('rouge')
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -89,9 +93,9 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_step(self, batch, batch_idx: int):
-        figure, metadata = batch
+        figure, labels = batch
         image = self.preprocess_image(figure).to(self.device)
-        output = self(image, metadata)
+        output = self(image, labels)
         self.log("val/loss", output.loss)
         # Use sampling to generate sentences
         generated = self.model.generate(
@@ -99,6 +103,23 @@ class EncoderDecoderModel(pl.LightningModule):
             bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)
+        # PROCESSING FOR BLEU SCORE
+        # model_predictions.shape = [2, 44]
+        # for bleu_metric.compute input
+        tokenized_labels = [[label.split()] for label in labels]
+        model_predictions = [decode.split() for decode in decoded]
+        bleu_score = self.bleu_metric.compute(
+            predictions=model_predictions, references=tokenized_labels)
+
+        # PROCESSING FOR ROUGE SCORE
+        rouge_score = self.rouge_metric.compute(
+            predictions=decoded, references=labels)
+
+        # LOGGING
+        # TODO: what rouge score do we want to log? Use print(self.rouge_metric)
+        # to see manual
+        self.log('val/bleu_score', bleu_score['bleu'])
+        self.log('val/rouge_score', rouge_score['rouge1'].mid.fmeasure)
         return output.loss
 
     def configure_optimizers(self):
