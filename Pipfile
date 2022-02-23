@@ -19,6 +19,7 @@ rouge-score = "*"
 ipywidgets = "*"
 clip = { git = "https://github.com/openai/CLIP.git" }
 setuptools = "==59.5.0"
+torch-xla = {file = "https://storage.googleapis.com/tpu-pytorch/wheels/tpuvm/torch_xla-1.10-cp38-cp38-linux_x86_64.whl"}
 
 [dev-packages]
 autopep8 = "*"
