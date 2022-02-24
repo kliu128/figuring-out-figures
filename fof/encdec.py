@@ -19,16 +19,16 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, lr: float = 5e-5, **kwargs):
+    def __init__(self, text_model: str, lr: float = 5e-5, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
         encoder = ExtensibleEncoder()
-        gpt2 = tr.AutoModelForCausalLM.from_pretrained(
-            "distilgpt2", add_cross_attention=True)
+        decoder = tr.AutoModelForCausalLM.from_pretrained(
+            text_model, add_cross_attention=True)
 
         model = tr.VisionEncoderDecoderModel(
-            encoder=encoder.clip, decoder=gpt2)
+            encoder=encoder.clip, decoder=decoder)
         # model.encoder = encoder
         # use GPT2's eos_token as the pad as well as eos token
         # TODO is this line correct?
@@ -42,7 +42,7 @@ class EncoderDecoderModel(pl.LightningModule):
             do_resize=False,
             do_center_crop=False,
         )
-        self.text_tokenizer = tr.AutoTokenizer.from_pretrained("distilgpt2")
+        self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
         self.lr = lr
@@ -54,6 +54,7 @@ class EncoderDecoderModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("EncDecModel")
+        parser.add_argument("--text_model", type=str, default="distilgpt2")
         return parent_parser
 
     def preprocess_image(self, figure):
@@ -76,6 +77,7 @@ class EncoderDecoderModel(pl.LightningModule):
         image = self.preprocess_image(figure)
         output = self(image, metadata)
         self.log("train/loss", output.loss)
+        self.log("train/perplexity", torch.exp(output.loss))
 
         # Print samples for debugging
         # generated = self.model.generate(
@@ -107,6 +109,7 @@ class EncoderDecoderModel(pl.LightningModule):
 
         # Logs average val loss
         self.log("val/loss", output.loss)
+        self.log("val/perplexity", torch.exp(output.loss))
 
         return output.loss
 

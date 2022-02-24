@@ -32,11 +32,12 @@ if __name__ == "__main__":
     epoch_callback = ModelCheckpoint(
         every_n_epochs=10)
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
+    swa_callback = pl.callbacks.StochasticWeightAveraging()
 
     # wandb_logger = WandbLogger(name=args.exp, project="figuring-out-figures")
     logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
-        args, callbacks=[val_callback, epoch_callback, lr_monitor], logger=logger)
+        args, callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback], logger=logger)
 
     dict_args = vars(args)
     if args.model == "encdec":
