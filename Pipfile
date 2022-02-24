@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-torch = "*"
+torch = "==1.10.0"
 torchvision = "*"
 torchaudio = "*"
 pytorch-lightning = "*"
@@ -13,13 +13,10 @@ torchtyping = "*"
 wandb = "*"
 torchtext = "*"
 datasets = "*"
-sklearn = "*"
-nltk = "*"
-rouge-score = "*"
 ipywidgets = "*"
-clip = { git = "https://github.com/openai/CLIP.git" }
 setuptools = "==59.5.0"
-torch-xla = {file = "https://storage.googleapis.com/tpu-pytorch/wheels/tpuvm/torch_xla-1.10-cp38-cp38-linux_x86_64.whl"}
+torch-xla = {extras = ["tpuvm"], file = "https://storage.googleapis.com/tpu-pytorch/wheels/tpuvm/torch_xla-1.10-cp38-cp38-linux_x86_64.whl"}
+python-dotenv = "*"
 
 [dev-packages]
 autopep8 = "*"

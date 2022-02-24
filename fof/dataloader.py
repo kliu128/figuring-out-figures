@@ -83,7 +83,7 @@ class ScicapDataModule(pl.LightningDataModule):
             experiment, "val", transform, limit, tokenizer)
         self.batch_size = batch_size
         self.collator = tr.DataCollatorForSeq2Seq(
-            tokenizer, padding="longest", return_tensors="pt",
+            tokenizer, padding="max_length", return_tensors="pt",
             label_pad_token_id=tokenizer.eos_token_id)
 
     def train_dataloader(self):
