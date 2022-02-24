@@ -44,11 +44,11 @@ class EncoderDecoderModel(pl.LightningModule):
         )
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained("distilgpt2")
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
-        # breakpoint()
 
         self.lr = lr
 
-        self.bleu_metric = load_metric('bleu')
+        # Use sacrebleu as a standard BLEU computer.
+        self.bleu_metric = load_metric('sacrebleu')
         self.rouge_metric = load_metric('rouge')
 
     @staticmethod
@@ -57,10 +57,6 @@ class EncoderDecoderModel(pl.LightningModule):
         return parent_parser
 
     def preprocess_image(self, figure):
-        # images = torch.split(figure, split_size_or_sections=1)
-        # squeezed_tensors = list(map(torch.squeeze, images))
-        # image = self.image_processor(images=squeezed_tensors)
-        # image = torch.stack(image["pixel_values"])
         return figure
 
     def forward(self, image, labels):
@@ -95,39 +91,31 @@ class EncoderDecoderModel(pl.LightningModule):
         figure, labels = batch["figure"], batch["labels"]
         image = self.preprocess_image(figure)
         output = self(image, labels)
-        self.log("val/loss", output.loss)
         # Use sampling to generate sentences
         generated = self.model.generate(
             image, return_dict_in_generate=True, do_sample=True,
             bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)
-        # PROCESSING FOR BLEU SCORE
-        # model_predictions.shape = [2, 44]
-        # for bleu_metric.compute input
         labels: List[str] = self.text_tokenizer.batch_decode(
             labels, skip_special_tokens=True)
-        tokenized_labels = [[label.split()] for label in labels]
-        model_predictions = [decode.split() for decode in decoded]
-        try:
-            bleu_score = self.bleu_metric.compute(
-                predictions=model_predictions, references=tokenized_labels)
-            self.log('val/bleu_score', bleu_score['bleu'])
-        except Exception as e:
-            print(e)
 
-        try:
-            # PROCESSING FOR ROUGE SCORE
-            rouge_score = self.rouge_metric.compute(
-                predictions=decoded, references=labels)
-            # LOGGING
-            # TODO: what rouge score do we want to log? Use print(self.rouge_metric)
-            # to see manual
-            self.log('val/rouge_score', rouge_score['rouge1'].mid.fmeasure)
-        except Exception as e:
-            print(e)
+        # Compute metrics (queue batch to compute metrics later)
+        self.bleu_metric.add_batch(predictions=decoded, references=[
+                                   [label] for label in labels])
+        self.rouge_metric.add_batch(predictions=decoded, references=labels)
+
+        # Logs average val loss
+        self.log("val/loss", output.loss)
 
         return output.loss
+
+    def validation_epoch_end(self, outputs):
+        # Compute over all batches
+        self.log("val/bleu_score",
+                 self.bleu_metric.compute(lowercase=True)['score'])
+        self.log("val/rouge_score", self.rouge_metric.compute()
+                 ['rouge1'].mid.fmeasure)
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)

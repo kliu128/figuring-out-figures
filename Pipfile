@@ -15,8 +15,9 @@ torchtext = "*"
 datasets = "*"
 ipywidgets = "*"
 setuptools = "==59.5.0"
-torch-xla = {extras = ["tpuvm"], file = "https://storage.googleapis.com/tpu-pytorch/wheels/tpuvm/torch_xla-1.10-cp38-cp38-linux_x86_64.whl"}
+#torch-xla = {extras = ["tpuvm"], file = "https://storage.googleapis.com/tpu-pytorch/wheels/tpuvm/torch_xla-1.10-cp38-cp38-linux_x86_64.whl"}
 python-dotenv = "*"
+sacrebleu = "*"
 
 [dev-packages]
 autopep8 = "*"
