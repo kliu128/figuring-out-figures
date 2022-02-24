@@ -1,14 +1,12 @@
+from dataloader import ScicapDataModule
+from encdec import EncoderDecoderModel
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+import pytorch_lightning as pl
+import argparse
 from dotenv import load_dotenv
 
 load_dotenv()
-
-import argparse
-
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from encdec import EncoderDecoderModel
-from dataloader import ScicapDataModule
 
 
 if __name__ == "__main__":
@@ -33,11 +31,12 @@ if __name__ == "__main__":
         save_top_k=3, mode="min", monitor="val/loss")
     epoch_callback = ModelCheckpoint(
         every_n_epochs=10)
+    lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
 
     # wandb_logger = WandbLogger(name=args.exp, project="figuring-out-figures")
     logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
-        args, callbacks=[val_callback, epoch_callback], logger=logger)
+        args, callbacks=[val_callback, epoch_callback, lr_monitor], logger=logger)
 
     dict_args = vars(args)
     if args.model == "encdec":

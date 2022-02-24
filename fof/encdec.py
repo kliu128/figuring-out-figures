@@ -19,7 +19,7 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, lr: int, **kwargs):
+    def __init__(self, lr: float = 5e-5, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
@@ -29,7 +29,7 @@ class EncoderDecoderModel(pl.LightningModule):
 
         model = tr.VisionEncoderDecoderModel(
             encoder=encoder.clip, decoder=gpt2)
-        model.encoder = encoder
+        # model.encoder = encoder
         # use GPT2's eos_token as the pad as well as eos token
         # TODO is this line correct?
         model.config.decoder_start_token_id = model.config.decoder.bos_token_id
@@ -118,4 +118,11 @@ class EncoderDecoderModel(pl.LightningModule):
                  ['rouge1'].mid.fmeasure)
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', verbose=True)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss"
+        }
