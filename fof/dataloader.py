@@ -19,10 +19,12 @@ class ScicapDataset(Dataset):
                  split: str,
                  transform: Callable,
                  limit: int = None,
-                 tokenizer=None):
+                 tokenizer=None,
+                 caption_type="orig"):
         self.transform = transform
         self.limit = limit
         self.tokenizer = tokenizer
+        self.caption_type = caption_type
 
         root = Path("./scicap_data")
         self.metadata_dir = root / "SciCap-Caption-All" / split
@@ -52,8 +54,13 @@ class ScicapDataset(Dataset):
         if self.transform:
             figure = self.transform(figure)
 
+        if self.caption_type == "orig":
+            caption = metadata["0-originally-extracted"]
+        elif self.caption_type == "normalized":
+            caption = metadata["2-normalized"]["2-2-advanced-euqation-bracket"]["caption"]
+
         x = self.tokenizer.encode(
-            metadata["0-originally-extracted"], truncation=True, return_tensors="pt").squeeze()
+            caption, truncation=True, return_tensors="pt").squeeze()
         return {
             "figure": figure,
             # ignore input ids
@@ -73,14 +80,14 @@ class ScicapDataModule(pl.LightningDataModule):
                     (0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
             ]),
             batch_size: int = 32,
-            limit: int = None):
+            limit: int = None, **kwargs):
         super().__init__()
         self.train_dset = ScicapDataset(
-            experiment, "train", transform, limit, tokenizer)
+            experiment, "train", transform, limit, tokenizer, **kwargs)
         self.test_dset = ScicapDataset(
-            experiment, "test", transform, limit, tokenizer)
+            experiment, "test", transform, limit, tokenizer, **kwargs)
         self.val_dset = ScicapDataset(
-            experiment, "val", transform, limit, tokenizer)
+            experiment, "val", transform, limit, tokenizer, **kwargs)
         self.batch_size = batch_size
         self.collator = tr.DataCollatorForSeq2Seq(
             tokenizer, padding="max_length", return_tensors="pt",

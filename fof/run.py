@@ -24,6 +24,7 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--caption_type", type=str, default="orig")
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
@@ -55,7 +56,8 @@ def main(args):
         "First-Sentence",
         batch_size=args.batch_size,
         limit=args.limit,
-        tokenizer=model.text_tokenizer)
+        tokenizer=model.text_tokenizer,
+        caption_type=args.caption_type)
 
     if args.mode == "train":
         trainer.tune(model, datamodule=datamodule)
