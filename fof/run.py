@@ -4,7 +4,7 @@ import sys; sys.path.append("./")
 from dotenv import load_dotenv
 import argparse
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from fof.encdec import EncoderDecoderModel
 from fof.dataloader import ScicapDataModule
@@ -25,6 +25,8 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--caption_type", type=str, default="orig")
+    parser.add_argument("--pl_logger", type=str,
+                        choices=["wandb", "tb"], default="wandb")
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
@@ -43,8 +45,11 @@ def main(args):
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
     swa_callback = pl.callbacks.StochasticWeightAveraging()
 
-    # wandb_logger = WandbLogger(name=args.exp, project="figuring-out-figures")
-    logger = TensorBoardLogger("tb_logs", name=args.exp)
+    if args.pl_logger == "wandb":
+        logger = WandbLogger(
+            name=args.exp, project="figuring-out-figures", log_model=True)
+    if args.pl_logger == "tb":
+        logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
         args, callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback], logger=logger)
 
@@ -61,6 +66,8 @@ def main(args):
 
     if args.mode == "train":
         trainer.tune(model, datamodule=datamodule)
+        if args.pl_logger == "wandb":
+            logger.watch(model, log="all")
         trainer.fit(model, datamodule=datamodule)
     elif args.mode == "validate":
         trainer.validate(model, datamodule=datamodule)

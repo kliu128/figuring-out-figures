@@ -59,8 +59,9 @@ class ScicapDataset(Dataset):
         elif self.caption_type == "normalized":
             caption = metadata["2-normalized"]["2-2-advanced-euqation-bracket"]["caption"]
 
+        # [1,14] -> [14]
         x = self.tokenizer.encode(
-            caption, truncation=True, return_tensors="pt").squeeze()
+            caption, truncation=True, return_tensors="pt").squeeze(dim=0)
         return {
             "figure": figure,
             # ignore input ids
