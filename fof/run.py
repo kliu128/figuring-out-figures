@@ -1,15 +1,20 @@
-from dataloader import ScicapDataModule
-from encdec import EncoderDecoderModel
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
-import pytorch_lightning as pl
-import argparse
+#autopep8: off
+import sys; sys.path.append("./")
+#autopep8: on
 from dotenv import load_dotenv
+import argparse
+import pytorch_lightning as pl
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from fof.encdec import EncoderDecoderModel
+from fof.dataloader import ScicapDataModule
+from typing import List
+
 
 load_dotenv()
 
 
-if __name__ == "__main__":
+def get_parser(args: List[str] = None):
     parser = argparse.ArgumentParser()
     parser = pl.Trainer.add_argparse_args(parser)
     parser.add_argument("mode", choices=["train", "validate"])
@@ -20,13 +25,16 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--lr", type=float, default=5e-5)
     # Extract model name from temp args
-    temp_args, _ = parser.parse_known_args()
+    temp_args, _ = parser.parse_known_args(args)
 
     # let the model add what it wants
     if temp_args.model == "encdec":
         parser = EncoderDecoderModel.add_model_specific_args(parser)
 
-    args = parser.parse_args()
+    return parser
+
+
+def main(args):
     val_callback = ModelCheckpoint(
         save_top_k=3, mode="min", monitor="val/loss")
     epoch_callback = ModelCheckpoint(
@@ -56,3 +64,8 @@ if __name__ == "__main__":
         trainer.validate(model, datamodule=datamodule)
     elif args.mode == "test":
         trainer.test(model, datamodule=datamodule)
+
+
+if __name__ == "__main__":
+    args = get_parser().parse_args()
+    main(args)

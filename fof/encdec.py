@@ -102,6 +102,8 @@ class EncoderDecoderModel(pl.LightningModule):
         labels: List[str] = self.text_tokenizer.batch_decode(
             labels, skip_special_tokens=True)
 
+        breakpoint()
+
         # Compute metrics (queue batch to compute metrics later)
         self.bleu_metric.add_batch(predictions=decoded, references=[
                                    [label] for label in labels])
@@ -114,6 +116,8 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_epoch_end(self, outputs):
+
+        breakpoint()
         # Compute over all batches
         self.log("val/bleu_score",
                  self.bleu_metric.compute(lowercase=True)['score'])
