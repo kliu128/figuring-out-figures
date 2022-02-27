@@ -61,7 +61,6 @@ class ScicapDataset(Dataset):
 
         return {
             "figure": figure,
-            # ignore input ids
             "labels": caption,
         }
 

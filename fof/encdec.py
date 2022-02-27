@@ -8,10 +8,12 @@ from torchtyping import TensorType
 
 
 class ExtensibleEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, vision_model: str):
         super().__init__()
-        self.clip = tr.CLIPVisionModel.from_pretrained(
-            "openai/clip-vit-base-patch32")
+        if "clip" in vision_model:
+            self.clip = tr.CLIPVisionModel.from_pretrained(vision_model)
+        else:
+            self.clip = tr.AutoModel.from_pretrained(vision_model)
         self.config = self.clip.config
         self.main_input_name = self.clip.main_input_name
 
@@ -20,11 +22,11 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, text_model: str, tpu_hacks: bool, lr: float, **kwargs):
+    def __init__(self, text_model: str, vision_model: str, tpu_hacks: bool, lr: float, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
-        encoder = ExtensibleEncoder()
+        encoder = ExtensibleEncoder(vision_model=vision_model)
         decoder = tr.AutoModelForCausalLM.from_pretrained(
             text_model, add_cross_attention=True)
 
@@ -57,6 +59,7 @@ class EncoderDecoderModel(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("EncDecModel")
         parser.add_argument("--text_model", type=str, default="distilgpt2")
+        parser.add_argument("--vision_model", type=str, default="openai/clip-vit-base-patch32")
         return parent_parser
 
     def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
@@ -68,7 +71,7 @@ class EncoderDecoderModel(pl.LightningModule):
             labels,
             padding="max_length" if self.tpu_hacks else True,
             return_tensors="pt")["input_ids"].to(self.device)
-
+        
         return figure, labels
 
     def forward(self, image, labels):
@@ -98,21 +101,11 @@ class EncoderDecoderModel(pl.LightningModule):
 
         return output.loss
 
-    def on_validation_start(self) -> None:
-        if self.tpu_hacks:
-            print("Moving model to CPU for evaluation")
-            self.tpu_model = self.model
-            self.model = self.model.to("cpu")
-
     def validation_step(self, batch, batch_idx: int):
-        image, labels = self.process_batch(batch)
-
         if self.tpu_hacks:
-            # Skip batches when running on TPU to avoid slow training times
-            if batch_idx % 5 != 0:
-                return
-            image = image.to("cpu")
-            labels = labels.to("cpu")
+            return
+        
+        image, labels = self.process_batch(batch)
 
         output = self(image, labels)
         # Use sampling to generate sentences
@@ -136,15 +129,14 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_epoch_end(self, outputs):
+        if self.tpu_hacks:
+            return
+        
         # Compute over all batches
         self.log("val/bleu_score",
                  self.bleu_metric.compute(lowercase=True)['score'])
         self.log("val/rouge_score", self.rouge_metric.compute()
                  ['rouge1'].mid.fmeasure)
-
-    def on_validation_end(self) -> None:
-        if self.tpu_hacks:
-            self.model = self.tpu_model
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -152,6 +144,6 @@ class EncoderDecoderModel(pl.LightningModule):
             optimizer, mode='min', verbose=True)
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/loss"
+            # "lr_scheduler": scheduler,
+            # "monitor": "val/loss"
         }
