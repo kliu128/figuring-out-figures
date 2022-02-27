@@ -27,6 +27,7 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--caption_type", type=str, default="orig")
     parser.add_argument("--pl_logger", type=str,
                         choices=["wandb", "tb"], default="wandb")
+    parser.add_argument("--load_checkpoint", type=str, default=None)
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
@@ -51,7 +52,9 @@ def main(args):
     if args.pl_logger == "tb":
         logger = TensorBoardLogger("tb_logs", name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
-        args, callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback], logger=logger)
+        args,
+        callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback],
+        logger=logger)
 
     dict_args = vars(args)
     if args.model == "encdec":
@@ -70,7 +73,7 @@ def main(args):
             logger.watch(model, log="all")
         trainer.fit(model, datamodule=datamodule)
     elif args.mode == "validate":
-        trainer.validate(model, datamodule=datamodule)
+        trainer.validate(model, datamodule=datamodule, ckpt_path=args.load_checkpoint)
     elif args.mode == "test":
         trainer.test(model, datamodule=datamodule)
 
