@@ -20,6 +20,7 @@ python-dotenv = "*"
 sacrebleu = "*"
 nltk = "*"
 rouge-score = "*"
+ujson = "*"
 
 [dev-packages]
 autopep8 = "*"

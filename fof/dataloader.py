@@ -11,7 +11,9 @@ from torchtyping import TensorType
 from torchvision import transforms
 import transformers as tr
 import torch
-import pickle
+
+import time
+from tqdm import tqdm
 
 
 class ScicapDataset(Dataset):
@@ -45,25 +47,47 @@ class ScicapDataset(Dataset):
             ".png", ".json") for name in self.metadata_files]
 
         # Get actual metadata from the papers (i.e., abstracts and titles)
-        self.actual_metadata_file = root / 'arxiv-metadata-oai-snapshot.json'
-        self.actual_metadata_json_file = root / 'metadata.json'
+        self.paper_metadata_file = root / 'arxiv-metadata-oai-snapshot.json'
+        # Directory to find jsons
+        self.paper_metadata_json_dir = root / 'metadata'
 
-        self.actual_metadata_id_to_json = None
-        if self.actual_metadata_json_file.is_file():
-            print('JSON file for metadata detected! Loading...')
-            with open(self.actual_metadata_json_file, 'r') as f:
-                self.actual_metadata_id_to_json = json.load(f)
-        else:
-            print('JSON file for metadata not detected. Gathering metadata...')
-            with open(self.actual_metadata_file) as f:
-                self.actual_metadata_id_to_json = {}
-                for line in f:
+        # self.paper_metadata_id_to_json = None
+
+        if not self.paper_metadata_json_dir.is_dir() or not os.listdir(self.paper_metadata_json_dir):
+            print('Creating JSON files...')
+            with open(self.paper_metadata_file) as f:
+                # self.paper_metadata_id_to_json = {}
+                start = time.time()
+                lines = tqdm(f.readlines(), unit='MB')
+                end = time.time()
+                for line in lines:
                     js = json.loads(line)  # load string
                     id = js['id']
-                    self.actual_metadata_id_to_json[id] = js
-            with open(self.actual_metadata_json_file, 'w') as f:
-                json.dump(self.actual_metadata_id_to_json, f)
-        assert self.actual_metadata_id_to_json is not None
+                    if '/' in id:  # faulty ID, ignore any ids that would required subdirectories
+                        continue
+                    with open(self.paper_metadata_json_dir / (id + '.json'), 'w') as newJSON:
+                        json.dump(js, newJSON)
+                loop_end = time.time()
+            print(
+                f'Reading time = {end - start}; Loop time = {loop_end - end}')
+        #         # self.paper_metadata_id_to_json[id] = js
+
+        # if self.paper_metadata_json_file.is_file():
+        #     print('JSON file for metadata detected! Loading...')
+        #     with open(self.paper_metadata_json_file, 'r') as f:
+        #         self.paper_metadata_id_to_json = json.load(f)
+        # else:
+        #     print('JSON file for metadata not detected. Gathering metadata...')
+        #     with open(self.paper_metadata_file) as f:
+        #         self.paper_metadata_id_to_json = {}
+        #         for line in f:
+        #             js = json.loads(line)  # load string
+        #             id = js['id']
+        #             self.paper_metadata_id_to_json[id] = js
+        #     with open(self.paper_metadata_json_file, 'w') as f:
+        #         json.dump(self.paper_metadata_id_to_json, f)
+        # assert self.paper_metadata_id_to_json is not None
+
         # Example entry (key is the figure ID, value is the below dict)
         # 'abstract': LOTS OF TEXT
         # 'authors': 'P. Papadimitratos and A. Jovanovic',
@@ -97,6 +121,11 @@ class ScicapDataset(Dataset):
         # Check if shaved off the right thing
         assert 'v' not in figure_id and metadata['paper-ID'][-2] == 'v'
 
+        with open(self.paper_metadata_json_dir / (figure_id + '.json')) as f:
+            js = json.load(f)
+            abstract = js['abstract']
+            title = js['title']
+
         if self.transform:
             figure = self.transform(figure)
 
@@ -107,8 +136,8 @@ class ScicapDataset(Dataset):
 
         return {
             "figure": figure,
-            'abstract': self.actual_metadata_id_to_json[figure_id]['abstract'],
-            'title': self.actual_metadata_id_to_json[figure_id]['title'],
+            'abstract': abstract,
+            'title': title,
             "labels": caption,
         }
 
@@ -127,6 +156,7 @@ class ScicapDataModule(pl.LightningDataModule):
             limit: int = None, **kwargs):
         super().__init__()
 
+        start = time.time()
         print('Initializing SCICAP training dataset')
         self.train_dset = ScicapDataset(
             experiment, "train", transform, limit, tokenizer, **kwargs)
@@ -139,13 +169,14 @@ class ScicapDataModule(pl.LightningDataModule):
         self.val_dset = ScicapDataset(
             experiment, "val", transform, limit, tokenizer, **kwargs)
 
+        print(f'Time taken: {time.time() - start}')
         self.batch_size = batch_size
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
+        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
+        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
+        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)

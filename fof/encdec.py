@@ -127,7 +127,6 @@ class EncoderDecoderModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx: int):
         if self.tpu_hacks:
             return
-        breakpoint()
         image, labels, title = self.process_batch(batch)
 
         output = self(image, labels, title)
