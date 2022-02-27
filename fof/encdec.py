@@ -17,18 +17,18 @@ class ExtensibleEncoder(nn.Module):
         self.config = self.clip.config
         self.main_input_name = self.clip.main_input_name
 
+        self.use_scibert = use_scibert
         if self.use_scibert:
             # SCIBERT encoder for metadata
-            self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
-                'allenai/scibert_scivocab_cased')
+
             self.metadata_encoder = tr.AutoModel.from_pretrained(
                 'allenai/scibert_scivocab_cased')
 
-    def forward(self, metadata = None, *args, **kwargs):
+    def forward(self, metadata=None, *args, **kwargs):
         image_embedding = self.clip(*args, **kwargs)
         if not self.use_scibert:
             return image_embedding
-        
+
         metadata_embedding = self.metadata_encoder(metadata)
         return metadata_embedding * image_embedding
 
@@ -38,7 +38,8 @@ class EncoderDecoderModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        encoder = ExtensibleEncoder(vision_model=vision_model, use_scibert=use_scibert)
+        encoder = ExtensibleEncoder(
+            vision_model=vision_model, use_scibert=use_scibert)
         decoder = tr.AutoModelForCausalLM.from_pretrained(
             text_model, add_cross_attention=True)
 
@@ -60,6 +61,9 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
+        self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
+            'allenai/scibert_scivocab_cased')
+
         self.tpu_hacks = tpu_hacks
         self.lr = lr
 
@@ -71,15 +75,16 @@ class EncoderDecoderModel(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("EncDecModel")
         parser.add_argument("--text_model", type=str, default="distilgpt2")
-        parser.add_argument("--vision_model", type=str, default="openai/clip-vit-base-patch32")
+        parser.add_argument("--vision_model", type=str,
+                            default="openai/clip-vit-base-patch32")
         parser.add_argument("--use_scibert", type=bool, default=False)
         return parent_parser
 
     def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
         # (B, 3, 224, 224)
-        figure, labels, metadata = batch["figure"], batch["labels"], batch['metadata']
-        tokenized_metadata = self.metadata_tokenizer(
-            metadata['title'],
+        figure, labels, title = batch["figure"], batch["labels"], batch['title']
+        tokenized_title = self.metadata_tokenizer(
+            title,
             padding="max_length" if self.tpu_hacks else True,
             return_tensors='pt')
         # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
@@ -88,8 +93,8 @@ class EncoderDecoderModel(pl.LightningModule):
             labels,
             padding="max_length" if self.tpu_hacks else True,
             return_tensors="pt")["input_ids"].to(self.device)
-        
-        return figure, labels, tokenized_metadata
+
+        return figure, labels, tokenized_title
 
     def forward(self, image, labels, metadata):
         output = self.model(
@@ -122,10 +127,10 @@ class EncoderDecoderModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx: int):
         if self.tpu_hacks:
             return
-        
-        image, labels = self.process_batch(batch)
+        breakpoint()
+        image, labels, title = self.process_batch(batch)
 
-        output = self(image, labels)
+        output = self(image, labels, title)
         # Use sampling to generate sentences
         generated = self.model.generate(
             image, return_dict_in_generate=True, do_sample=True,
@@ -149,7 +154,7 @@ class EncoderDecoderModel(pl.LightningModule):
     def validation_epoch_end(self, outputs):
         if self.tpu_hacks:
             return
-        
+
         # Compute over all batches
         self.log("val/bleu_score",
                  self.bleu_metric.compute(lowercase=True)['score'])

@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Callable, Tuple, Dict
 
 import pytorch_lightning as pl
-from sklearn.exceptions import NonBLASDotWarning
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from torchvision.io import read_image
@@ -47,23 +46,23 @@ class ScicapDataset(Dataset):
 
         # Get actual metadata from the papers (i.e., abstracts and titles)
         self.actual_metadata_file = root / 'arxiv-metadata-oai-snapshot.json'
-        self.actual_metadata_pkl_file = root / 'metadata.pkl'
+        self.actual_metadata_json_file = root / 'metadata.json'
 
         self.actual_metadata_id_to_json = None
-        if self.actual_metadata_pkl_file.is_file():
-            print('Pickle file for metadata detected! Loading...')
-            with open(self.actual_metadata_pkl_file, 'rb') as f:
-                self.actual_metadata_id_to_json = pickle.load(f)
+        if self.actual_metadata_json_file.is_file():
+            print('JSON file for metadata detected! Loading...')
+            with open(self.actual_metadata_json_file, 'r') as f:
+                self.actual_metadata_id_to_json = json.load(f)
         else:
-            print('Pickle file for metadata not detected. Gathering metadata...')
+            print('JSON file for metadata not detected. Gathering metadata...')
             with open(self.actual_metadata_file) as f:
                 self.actual_metadata_id_to_json = {}
                 for line in f:
                     js = json.loads(line)  # load string
                     id = js['id']
                     self.actual_metadata_id_to_json[id] = js
-            with open(self.actual_metadata_pkl_file, 'wb') as f:
-                pickle.dump(self.actual_metadata_id_to_json, f)
+            with open(self.actual_metadata_json_file, 'w') as f:
+                json.dump(self.actual_metadata_id_to_json, f)
         assert self.actual_metadata_id_to_json is not None
         # Example entry (key is the figure ID, value is the below dict)
         # 'abstract': LOTS OF TEXT
@@ -108,7 +107,7 @@ class ScicapDataset(Dataset):
 
         return {
             "figure": figure,
-            # 'abstract': self.actual_metadata_id_to_json[figure_id]['abstract'],
+            'abstract': self.actual_metadata_id_to_json[figure_id]['abstract'],
             'title': self.actual_metadata_id_to_json[figure_id]['title'],
             "labels": caption,
         }
@@ -143,10 +142,10 @@ class ScicapDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=0, pin_memory=True)
