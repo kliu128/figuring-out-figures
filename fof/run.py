@@ -29,6 +29,7 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--pl_logger", type=str,
                         choices=["wandb", "tb"], default="wandb")
     parser.add_argument("--load_checkpoint", type=str, default=None)
+    parser.add_argument("--tpu_hacks", action="store_true", default=False)
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 

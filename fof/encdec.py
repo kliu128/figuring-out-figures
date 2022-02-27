@@ -1,9 +1,10 @@
-from typing import List
+from typing import List, Tuple
 import pytorch_lightning as pl
 import transformers as tr
 import torch
 import torch.nn as nn
 from datasets import load_metric
+from torchtyping import TensorType
 
 
 class ExtensibleEncoder(nn.Module):
@@ -19,7 +20,7 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, text_model: str, lr: float = 5e-5, **kwargs):
+    def __init__(self, text_model: str, tpu_hacks: bool, lr: float, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
@@ -45,6 +46,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
+        self.tpu_hacks = tpu_hacks
         self.lr = lr
 
         # Use sacrebleu as a standard BLEU computer.
@@ -57,8 +59,17 @@ class EncoderDecoderModel(pl.LightningModule):
         parser.add_argument("--text_model", type=str, default="distilgpt2")
         return parent_parser
 
-    def preprocess_image(self, figure):
-        return figure
+    def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
+        # (B, 3, 224, 224)
+        figure, labels = batch["figure"], batch["labels"]
+        # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
+        # because VisionEncoderDecoder will generate it
+        labels = self.text_tokenizer(
+            labels,
+            padding="max_length" if self.tpu_hacks else True,
+            return_tensors="pt")["input_ids"].to(self.device)
+
+        return figure, labels
 
     def forward(self, image, labels):
         output = self.model(
@@ -73,9 +84,7 @@ class EncoderDecoderModel(pl.LightningModule):
         return output
 
     def training_step(self, batch, batch_idx: int):
-        figure, metadata = batch["figure"], batch["labels"]
-        image = self.preprocess_image(figure)
-        output = self(image, metadata)
+        output = self(*self.process_batch(batch))
         self.log("train/loss", output.loss)
         self.log("train/perplexity", torch.exp(output.loss))
 
@@ -89,9 +98,22 @@ class EncoderDecoderModel(pl.LightningModule):
 
         return output.loss
 
+    def on_validation_start(self) -> None:
+        if self.tpu_hacks:
+            print("Moving model to CPU for evaluation")
+            self.tpu_model = self.model
+            self.model = self.model.to("cpu")
+
     def validation_step(self, batch, batch_idx: int):
-        figure, labels = batch["figure"], batch["labels"]
-        image = self.preprocess_image(figure)
+        image, labels = self.process_batch(batch)
+
+        if self.tpu_hacks:
+            # Skip batches when running on TPU to avoid slow training times
+            if batch_idx % 5 != 0:
+                return
+            image = image.to("cpu")
+            labels = labels.to("cpu")
+
         output = self(image, labels)
         # Use sampling to generate sentences
         generated = self.model.generate(
@@ -119,6 +141,10 @@ class EncoderDecoderModel(pl.LightningModule):
                  self.bleu_metric.compute(lowercase=True)['score'])
         self.log("val/rouge_score", self.rouge_metric.compute()
                  ['rouge1'].mid.fmeasure)
+
+    def on_validation_end(self) -> None:
+        if self.tpu_hacks:
+            self.model = self.tpu_model
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
