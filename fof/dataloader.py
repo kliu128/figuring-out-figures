@@ -53,7 +53,8 @@ class ScicapDataset(Dataset):
 
         # self.paper_metadata_id_to_json = None
 
-        if not self.paper_metadata_json_dir.is_dir() or not os.listdir(self.paper_metadata_json_dir):
+        if not self.paper_metadata_json_dir.is_dir():
+            os.mkdir(self.paper_metadata_json_dir)
             print('Creating JSON files...')
             with open(self.paper_metadata_file) as f:
                 # self.paper_metadata_id_to_json = {}
