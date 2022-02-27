@@ -45,6 +45,12 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
+        # SCIBERT encoder for metadata
+        self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
+            'allenai/scibert_scivocab_cased')
+        self.metadata_encoder = tr.AutoModel.from_pretrained(
+            'allenai/scibert_scivocab_cased')
+
         self.lr = lr
 
         # Use sacrebleu as a standard BLEU computer.
@@ -73,9 +79,12 @@ class EncoderDecoderModel(pl.LightningModule):
         return output
 
     def training_step(self, batch, batch_idx: int):
-        figure, metadata = batch["figure"], batch["labels"]
+        figure, labels, metadata = batch["figure"], batch["labels"], batch['metadata']
+        tokenized_metadata = self.metadata_tokenizer(metadata['title'])
+        metadata_embedding = self.metadata_encoder(tokenized_metadata)
+
         image = self.preprocess_image(figure)
-        output = self(image, metadata)
+        output = self(image, labels)
         self.log("train/loss", output.loss)
         self.log("train/perplexity", torch.exp(output.loss))
 

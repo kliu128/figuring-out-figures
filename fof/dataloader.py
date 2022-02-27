@@ -1,9 +1,10 @@
 import os
 import json
 from pathlib import Path
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Dict
 
 import pytorch_lightning as pl
+from sklearn.exceptions import NonBLASDotWarning
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from torchvision.io import read_image
@@ -11,6 +12,7 @@ from torchtyping import TensorType
 from torchvision import transforms
 import transformers as tr
 import torch
+import pickle
 
 
 class ScicapDataset(Dataset):
@@ -27,17 +29,57 @@ class ScicapDataset(Dataset):
         self.caption_type = caption_type
 
         root = Path("./scicap_data")
-        self.metadata_dir = root / "SciCap-Caption-All" / split
+        # split is 'train', 'test', or 'val'
+        self.metadata_dir = root / "SciCap-Caption-All" / split  # every figure caption
         self.image_dir = root / "SciCap-No-Subfig-Img" / split
 
+        # Contains all json with all file names of figures with no subfigures
         file_idx = root / "List-of-Files-for-Each-Experiments" / \
             experiment / "No-Subfig" / split / "file_idx.json"
 
+        # Get all file names
         with open(file_idx) as f:
             self.metadata_files = json.load(f)
+
         # We want metadata files, not images.
-        self.metadata_files = [name.replace(
+        self.metadata_files = [name.replace(  # contains all names of figures with no subfigures
             ".png", ".json") for name in self.metadata_files]
+
+        # Get actual metadata from the papers (i.e., abstracts and titles)
+        self.actual_metadata_file = root / 'arxiv-metadata-oai-snapshot.json'
+        self.actual_metadata_pkl_file = root / 'metadata.pkl'
+
+        self.actual_metadata_id_to_json = None
+        if self.actual_metadata_pkl_file.is_file():
+            print('Pickle file for metadata detected! Loading...')
+            with open(self.actual_metadata_pkl_file, 'rb') as f:
+                self.actual_metadata_id_to_json = pickle.load(f)
+        else:
+            print('Pickle file for metadata not detected. Gathering metadata...')
+            with open(self.actual_metadata_file) as f:
+                self.actual_metadata_id_to_json = {}
+                for line in f:
+                    js = json.loads(line)  # load string
+                    id = js['id']
+                    self.actual_metadata_id_to_json[id] = js
+            with open(self.actual_metadata_pkl_file, 'wb') as f:
+                pickle.dump(self.actual_metadata_id_to_json, f)
+        assert self.actual_metadata_id_to_json is not None
+        # Example entry (key is the figure ID, value is the below dict)
+        # 'abstract': LOTS OF TEXT
+        # 'authors': 'P. Papadimitratos and A. Jovanovic',
+        # 'authors_parsed': [['Papadimitratos', 'P.', ''], ['Jovanovic', 'A.', '']],
+        # 'categories': 'cs.CR',
+        # 'comments': None,
+        # 'doi': None,
+        # 'id': '1001.0025',
+        # 'journal-ref': 'IEEE MILCOM, San Diego, CA, USA, November 2008',
+        # 'license': 'http://arxiv.org/licenses/nonexclusive-distrib/1.0/',
+        # 'report-no': None,
+        # 'submitter': 'Panos Papadimitratos',
+        # 'title': 'GNSS-based positioning: Attacks and Countermeasures',
+        # 'update_date': '2010-01-05',
+        # 'versions': [{'created': 'Wed, 30 Dec 2009 22:13:59 GMT', 'version': 'v1'}]}
 
     def __len__(self):
         if self.limit is None:
@@ -45,11 +87,16 @@ class ScicapDataset(Dataset):
         else:
             return min(self.limit, len(self.metadata_files))
 
-    def __getitem__(self, idx) -> Tuple[TensorType[3, "height", "width"], dict]:
+    def __getitem__(self, idx) -> Tuple[TensorType[3, "height", "width"], Dict]:
         with open(self.metadata_dir / self.metadata_files[idx]) as f:
             metadata = json.load(f)
         figure = read_image(
             str(self.image_dir / metadata["figure-ID"])).to(dtype=torch.float)
+
+        # shave off version number e.g., 'v1'
+        figure_id = metadata['paper-ID'][:-2]
+        # Check if shaved off the right thing
+        assert 'v' not in figure_id and metadata['paper-ID'][-2] == 'v'
 
         if self.transform:
             figure = self.transform(figure)
@@ -64,6 +111,8 @@ class ScicapDataset(Dataset):
             caption, truncation=True, return_tensors="pt").squeeze(dim=0)
         return {
             "figure": figure,
+            # 'abstract': self.actual_metadata_id_to_json[figure_id]['abstract'],
+            'title': self.actual_metadata_id_to_json[figure_id]['title'],
             # ignore input ids
             "input_ids": x,
             "labels": x,
@@ -83,12 +132,19 @@ class ScicapDataModule(pl.LightningDataModule):
             batch_size: int = 32,
             limit: int = None, **kwargs):
         super().__init__()
+
+        print('Initializing SCICAP training dataset')
         self.train_dset = ScicapDataset(
             experiment, "train", transform, limit, tokenizer, **kwargs)
+
+        print('Initializing SCICAP testing dataset')
         self.test_dset = ScicapDataset(
             experiment, "test", transform, limit, tokenizer, **kwargs)
+
+        print('Initializing SCICAP validation dataset')
         self.val_dset = ScicapDataset(
             experiment, "val", transform, limit, tokenizer, **kwargs)
+
         self.batch_size = batch_size
         self.collator = tr.DataCollatorForSeq2Seq(
             tokenizer, padding="max_length", return_tensors="pt",

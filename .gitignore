@@ -196,3 +196,4 @@ lightning_logs
 *.ckpt
 tb_logs
 wandb
+metadata.pkl
