@@ -7,7 +7,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from fof.encdec import EncoderDecoderModel
-from fof.deit_gpt import DeitGPTModel
 from fof.dataloader import ScicapDataModule
 from typing import List
 
@@ -21,7 +20,7 @@ def get_parser(args: List[str] = None):
     parser.add_argument("mode", choices=["train", "validate"])
     parser.add_argument("--exp", default="x")
     parser.add_argument("--model", type=str,
-                        default="clip+gpt2", choices=["clip+gpt2", "encdec", "deit_gpt"])
+                        default="encdec", choices=["encdec"])
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--lr", type=float, default=5e-5)
@@ -29,14 +28,13 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--pl_logger", type=str,
                         choices=["wandb", "tb"], default="wandb")
     parser.add_argument("--load_checkpoint", type=str, default=None)
+    parser.add_argument("--tpu_hacks", action="store_true", default=False)
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
     # let the model add what it wants
     if temp_args.model == "encdec":
         parser = EncoderDecoderModel.add_model_specific_args(parser)
-    elif temp_args.model == "deit_gpt":
-        parser = DeitGPTModel.add_model_specific_args(parser)
 
     return parser
 
@@ -62,8 +60,6 @@ def main(args):
     dict_args = vars(args)
     if args.model == "encdec":
         model = EncoderDecoderModel(**dict_args)
-    elif args.model == "deit_gpt":
-        model = DeitGPTModel(**dict_args)
 
     datamodule = ScicapDataModule(
         "First-Sentence",

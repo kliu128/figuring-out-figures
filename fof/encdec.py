@@ -1,29 +1,44 @@
-from typing import List
+from typing import List, Tuple
 import pytorch_lightning as pl
 import transformers as tr
 import torch
 import torch.nn as nn
 from datasets import load_metric
+from torchtyping import TensorType
 
 
 class ExtensibleEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, vision_model: str, use_scibert: bool):
         super().__init__()
-        self.clip = tr.CLIPVisionModel.from_pretrained(
-            "openai/clip-vit-base-patch32")
+        if "clip" in vision_model:
+            self.clip = tr.CLIPVisionModel.from_pretrained(vision_model)
+        else:
+            self.clip = tr.AutoModel.from_pretrained(vision_model)
         self.config = self.clip.config
         self.main_input_name = self.clip.main_input_name
 
-    def forward(self, *args, **kwargs):
-        return self.clip(*args, **kwargs)
+        if self.use_scibert:
+            # SCIBERT encoder for metadata
+            self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
+                'allenai/scibert_scivocab_cased')
+            self.metadata_encoder = tr.AutoModel.from_pretrained(
+                'allenai/scibert_scivocab_cased')
+
+    def forward(self, metadata = None, *args, **kwargs):
+        image_embedding = self.clip(*args, **kwargs)
+        if not self.use_scibert:
+            return image_embedding
+        
+        metadata_embedding = self.metadata_encoder(metadata)
+        return metadata_embedding * image_embedding
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, text_model: str, lr: float = 5e-5, **kwargs):
+    def __init__(self, text_model: str, vision_model: str, tpu_hacks: bool, use_scibert: bool, lr: float, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
-        encoder = ExtensibleEncoder()
+        encoder = ExtensibleEncoder(vision_model=vision_model, use_scibert=use_scibert)
         decoder = tr.AutoModelForCausalLM.from_pretrained(
             text_model, add_cross_attention=True)
 
@@ -45,12 +60,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
-        # SCIBERT encoder for metadata
-        self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
-            'allenai/scibert_scivocab_cased')
-        self.metadata_encoder = tr.AutoModel.from_pretrained(
-            'allenai/scibert_scivocab_cased')
-
+        self.tpu_hacks = tpu_hacks
         self.lr = lr
 
         # Use sacrebleu as a standard BLEU computer.
@@ -61,12 +71,27 @@ class EncoderDecoderModel(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("EncDecModel")
         parser.add_argument("--text_model", type=str, default="distilgpt2")
+        parser.add_argument("--vision_model", type=str, default="openai/clip-vit-base-patch32")
+        parser.add_argument("--use_scibert", type=bool, default=False)
         return parent_parser
 
-    def preprocess_image(self, figure):
-        return figure
+    def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
+        # (B, 3, 224, 224)
+        figure, labels, metadata = batch["figure"], batch["labels"], batch['metadata']
+        tokenized_metadata = self.metadata_tokenizer(
+            metadata['title'],
+            padding="max_length" if self.tpu_hacks else True,
+            return_tensors='pt')
+        # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
+        # because VisionEncoderDecoder will generate it
+        labels = self.text_tokenizer(
+            labels,
+            padding="max_length" if self.tpu_hacks else True,
+            return_tensors="pt")["input_ids"].to(self.device)
+        
+        return figure, labels, tokenized_metadata
 
-    def forward(self, image, labels):
+    def forward(self, image, labels, metadata):
         output = self.model(
             pixel_values=image,
             # Decoder input ids and attention masks are automatically generated
@@ -75,16 +100,12 @@ class EncoderDecoderModel(pl.LightningModule):
             # inputs: <start> A B C D
             # labels: A       B C D <end>
             labels=labels,
+            metadata=metadata,
         )
         return output
 
     def training_step(self, batch, batch_idx: int):
-        figure, labels, metadata = batch["figure"], batch["labels"], batch['metadata']
-        tokenized_metadata = self.metadata_tokenizer(metadata['title'])
-        metadata_embedding = self.metadata_encoder(tokenized_metadata)
-
-        image = self.preprocess_image(figure)
-        output = self(image, labels)
+        output = self(*self.process_batch(batch))
         self.log("train/loss", output.loss)
         self.log("train/perplexity", torch.exp(output.loss))
 
@@ -99,8 +120,11 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_step(self, batch, batch_idx: int):
-        figure, labels = batch["figure"], batch["labels"]
-        image = self.preprocess_image(figure)
+        if self.tpu_hacks:
+            return
+        
+        image, labels = self.process_batch(batch)
+
         output = self(image, labels)
         # Use sampling to generate sentences
         generated = self.model.generate(
@@ -123,6 +147,9 @@ class EncoderDecoderModel(pl.LightningModule):
         return output.loss
 
     def validation_epoch_end(self, outputs):
+        if self.tpu_hacks:
+            return
+        
         # Compute over all batches
         self.log("val/bleu_score",
                  self.bleu_metric.compute(lowercase=True)['score'])
@@ -135,6 +162,6 @@ class EncoderDecoderModel(pl.LightningModule):
             optimizer, mode='min', verbose=True)
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/loss"
+            # "lr_scheduler": scheduler,
+            # "monitor": "val/loss"
         }

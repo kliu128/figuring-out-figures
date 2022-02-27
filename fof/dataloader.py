@@ -106,16 +106,11 @@ class ScicapDataset(Dataset):
         elif self.caption_type == "normalized":
             caption = metadata["2-normalized"]["2-2-advanced-euqation-bracket"]["caption"]
 
-        # [1,14] -> [14]
-        x = self.tokenizer.encode(
-            caption, truncation=True, return_tensors="pt").squeeze(dim=0)
         return {
             "figure": figure,
             # 'abstract': self.actual_metadata_id_to_json[figure_id]['abstract'],
             'title': self.actual_metadata_id_to_json[figure_id]['title'],
-            # ignore input ids
-            "input_ids": x,
-            "labels": x,
+            "labels": caption,
         }
 
 
@@ -146,15 +141,12 @@ class ScicapDataModule(pl.LightningDataModule):
             experiment, "val", transform, limit, tokenizer, **kwargs)
 
         self.batch_size = batch_size
-        self.collator = tr.DataCollatorForSeq2Seq(
-            tokenizer, padding="max_length", return_tensors="pt",
-            label_pad_token_id=tokenizer.eos_token_id)
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True, collate_fn=self.collator)
+        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True, collate_fn=self.collator)
+        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True, collate_fn=self.collator)
+        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
