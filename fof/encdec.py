@@ -8,7 +8,7 @@ from torchtyping import TensorType
 
 
 class ExtensibleEncoder(nn.Module):
-    def __init__(self, vision_model: str, use_scibert: bool):
+    def __init__(self, device: str, vision_model: str, use_scibert: bool):
         super().__init__()
         if "clip" in vision_model:
             self.clip = tr.CLIPVisionModel.from_pretrained(vision_model)
@@ -16,21 +16,27 @@ class ExtensibleEncoder(nn.Module):
             self.clip = tr.AutoModel.from_pretrained(vision_model)
         self.config = self.clip.config
         self.main_input_name = self.clip.main_input_name
+        self.device = device
 
         self.use_scibert = use_scibert
         if self.use_scibert:
-            # SCIBERT encoder for metadata
-
+            # SCIBERT encoder for me    tadata
             self.metadata_encoder = tr.AutoModel.from_pretrained(
                 'allenai/scibert_scivocab_cased')
 
-    def forward(self, metadata=None, *args, **kwargs):
-        image_embedding = self.clip(*args, **kwargs)
+    def forward(self, pixel_values, metadata=None, *args, **kwargs):
+        image_output = self.clip(pixel_values, *args, **kwargs)
         if not self.use_scibert:
-            return image_embedding
+            return image_output
 
-        metadata_embedding = self.metadata_encoder(metadata)
-        return metadata_embedding * image_embedding
+        metadata_output = self.metadata_encoder(
+            input_ids=metadata["input_ids"], attention_mask=metadata["attention_mask"], token_type_ids=metadata["token_type_ids"])
+        # This line should be technically useless but included out of superstition
+        image_output.pooler_output *= metadata_output.pooler_output
+        # Concatenate on the sequence dimension
+        image_output.last_hidden_state = torch.cat(
+            [image_output.last_hidden_state, metadata_output.last_hidden_state], dim=1)
+        return image_output
 
 
 class EncoderDecoderModel(pl.LightningModule):
@@ -39,13 +45,13 @@ class EncoderDecoderModel(pl.LightningModule):
         self.save_hyperparameters()
 
         encoder = ExtensibleEncoder(
-            vision_model=vision_model, use_scibert=use_scibert)
+            self.device, vision_model=vision_model, use_scibert=use_scibert)
         decoder = tr.AutoModelForCausalLM.from_pretrained(
             text_model, add_cross_attention=True)
 
         model = tr.VisionEncoderDecoderModel(
             encoder=encoder.clip, decoder=decoder)
-        # model.encoder = encoder
+        model.encoder = encoder
         # use GPT2's eos_token as the pad as well as eos token
         # TODO is this line correct?
         model.config.decoder_start_token_id = model.config.decoder.bos_token_id
@@ -86,7 +92,7 @@ class EncoderDecoderModel(pl.LightningModule):
         tokenized_title = self.metadata_tokenizer(
             title,
             padding="max_length" if self.tpu_hacks else True,
-            return_tensors='pt')
+            return_tensors='pt').to(self.device)
         # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
         # because VisionEncoderDecoder will generate it
         labels = self.text_tokenizer(
@@ -132,7 +138,7 @@ class EncoderDecoderModel(pl.LightningModule):
         output = self(image, labels, title)
         # Use sampling to generate sentences
         generated = self.model.generate(
-            image, return_dict_in_generate=True, do_sample=True,
+            image, metadata=title, return_dict_in_generate=True, do_sample=True,
             bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)

@@ -1,19 +1,17 @@
-import os
-import json
-from pathlib import Path
-from typing import Callable, Tuple, Dict
-
-import pytorch_lightning as pl
-from torch.utils.data.dataloader import DataLoader
-from torch.utils.data.dataset import Dataset
-from torchvision.io import read_image
-from torchtyping import TensorType
-from torchvision import transforms
-import transformers as tr
 import torch
-
+from torchvision import transforms
+from torchtyping import TensorType
+from torchvision.io import read_image
+from torch.utils.data.dataset import Dataset
+from torch.utils.data.dataloader import DataLoader
+import pytorch_lightning as pl
+from typing import Callable, Tuple, Dict
+from pathlib import Path
+import json
 import time
 from tqdm import tqdm
+
+import os
 
 
 class ScicapDataset(Dataset):
