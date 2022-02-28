@@ -21,6 +21,7 @@ sacrebleu = "*"
 nltk = "*"
 rouge-score = "*"
 ujson = "*"
+ipdb = "*"
 
 [dev-packages]
 autopep8 = "*"

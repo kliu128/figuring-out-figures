@@ -1,5 +1,7 @@
 #autopep8: off
 import sys; sys.path.append("./")
+# Post-mortem ipdb debugger
+import fof.debug
 #autopep8: on
 from dotenv import load_dotenv
 import argparse
@@ -29,6 +31,7 @@ def get_parser(args: List[str] = None):
                         choices=["wandb", "tb"], default="wandb")
     parser.add_argument("--load_checkpoint", type=str, default=None)
     parser.add_argument("--tpu_hacks", action="store_true", default=False)
+    parser.add_argument("--logdir", type=str, default="/data/kevin/tb_logs")
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
@@ -47,11 +50,14 @@ def main(args):
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
     swa_callback = pl.callbacks.StochasticWeightAveraging()
 
+    if args.tpu_hacks:
+        args.logdir = "./tb_logs"
+
     if args.pl_logger == "wandb":
         logger = WandbLogger(
             name=args.exp, project="figuring-out-figures", log_model=True)
     if args.pl_logger == "tb":
-        logger = TensorBoardLogger("tb_logs", name=args.exp)
+        logger = TensorBoardLogger(args.logdir, name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
         args,
         callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback],

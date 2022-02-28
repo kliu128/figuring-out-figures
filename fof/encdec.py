@@ -22,7 +22,7 @@ class ExtensibleEncoder(nn.Module):
         if self.use_scibert:
             # SCIBERT encoder for me    tadata
             self.metadata_encoder = tr.AutoModel.from_pretrained(
-                'allenai/scibert_scivocab_cased')
+                'allenai/scibert_scivocab_uncased')
 
     def forward(self, pixel_values, metadata=None, *args, **kwargs):
         image_output = self.clip(pixel_values, *args, **kwargs)
@@ -30,7 +30,9 @@ class ExtensibleEncoder(nn.Module):
             return image_output
 
         metadata_output = self.metadata_encoder(
-            input_ids=metadata["input_ids"], attention_mask=metadata["attention_mask"], token_type_ids=metadata["token_type_ids"])
+            input_ids=metadata["input_ids"],
+            attention_mask=metadata["attention_mask"],
+            token_type_ids=metadata["token_type_ids"])
         # This line should be technically useless but included out of superstition
         image_output.pooler_output *= metadata_output.pooler_output
         # Concatenate on the sequence dimension
@@ -68,7 +70,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
         self.metadata_tokenizer = tr.AutoTokenizer.from_pretrained(
-            'allenai/scibert_scivocab_cased')
+            'allenai/scibert_scivocab_uncased')
 
         self.tpu_hacks = tpu_hacks
         self.lr = lr
@@ -88,19 +90,23 @@ class EncoderDecoderModel(pl.LightningModule):
 
     def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
         # (B, 3, 224, 224)
-        figure, labels, title = batch["figure"], batch["labels"], batch['title']
-        tokenized_title = self.metadata_tokenizer(
-            title,
+        figure, labels, title, abstract = batch["figure"], batch["labels"], batch['title'], batch['abstract']
+        tokenized_metadata = self.metadata_tokenizer(
+            [f"{t} [SEP] {a}" for t, a in zip(title, abstract)],
+            add_special_tokens=True,
             padding="max_length" if self.tpu_hacks else True,
+            max_length=512,
+            truncation=True,
             return_tensors='pt').to(self.device)
         # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
         # because VisionEncoderDecoder will generate it
         labels = self.text_tokenizer(
             labels,
             padding="max_length" if self.tpu_hacks else True,
-            return_tensors="pt")["input_ids"].to(self.device)
+            truncation=True,
+            return_tensors="pt").input_ids.to(self.device)
 
-        return figure, labels, tokenized_title
+        return figure, labels, tokenized_metadata
 
     def forward(self, image, labels, metadata):
         output = self.model(
