@@ -88,7 +88,7 @@ class EncoderDecoderModel(pl.LightningModule):
         parser.add_argument("--use_scibert", type=bool, default=False)
         return parent_parser
 
-    def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"]]:
+    def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"], TensorType["b", "len"]]:
         # (B, 3, 224, 224)
         figure, labels, title, abstract = batch["figure"], batch["labels"], batch['title'], batch['abstract']
         tokenized_metadata = self.metadata_tokenizer(
@@ -106,6 +106,7 @@ class EncoderDecoderModel(pl.LightningModule):
             truncation=True,
             return_tensors="pt").input_ids.to(self.device)
 
+        breakpoint()
         return figure, labels, tokenized_metadata
 
     def forward(self, image, labels, metadata):
