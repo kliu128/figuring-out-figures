@@ -20,9 +20,13 @@ class ExtensibleEncoder(nn.Module):
 
         self.use_scibert = use_scibert
         if self.use_scibert:
-            # SCIBERT encoder for me    tadata
+            # SCIBERT encoder for metadata
             self.metadata_encoder = tr.AutoModel.from_pretrained(
                 'allenai/scibert_scivocab_uncased')
+
+            # Freeze SCIBERT params
+            for param in self.metadata_encoder.base_model.parameters():
+                param.requires_grad = False
 
     def forward(self, pixel_values, metadata=None, *args, **kwargs):
         image_output = self.clip(pixel_values, *args, **kwargs)
@@ -48,6 +52,11 @@ class EncoderDecoderModel(pl.LightningModule):
 
         encoder = ExtensibleEncoder(
             self.device, vision_model=vision_model, use_scibert=use_scibert)
+
+        # Freeze encoder
+        # for param in encoder.clip.base_model.parameters():
+        #     param.requires_grad = False
+
         decoder = tr.AutoModelForCausalLM.from_pretrained(
             text_model, add_cross_attention=True)
 
@@ -82,7 +91,9 @@ class EncoderDecoderModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("EncDecModel")
-        parser.add_argument("--text_model", type=str, default="distilgpt2")
+        # facebook/bart-large
+        parser.add_argument("--text_model", type=str,
+                            default="distilgpt2")
         parser.add_argument("--vision_model", type=str,
                             default="openai/clip-vit-base-patch32")
         parser.add_argument("--use_scibert", type=bool, default=False)
@@ -106,7 +117,6 @@ class EncoderDecoderModel(pl.LightningModule):
             truncation=True,
             return_tensors="pt").input_ids.to(self.device)
 
-        breakpoint()
         return figure, labels, tokenized_metadata
 
     def forward(self, image, labels, metadata):
