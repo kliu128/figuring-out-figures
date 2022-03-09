@@ -54,7 +54,7 @@ def main(args):
 
     if args.pl_logger == "wandb":
         logger = WandbLogger(
-            name=args.exp, project="figuring-out-figures", log_model=False)
+            name=args.exp, project="figuring-out-figures", log_model=True)
     if args.pl_logger == "tb":
         logger = TensorBoardLogger(args.logdir, name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
