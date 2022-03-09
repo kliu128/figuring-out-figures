@@ -36,8 +36,8 @@ def find_references(text: str, fig_num: str, caption_blacklist: str, type: Liter
     """
     contexts = []
 
-    fig_pattern = rf"(?i)((?:Fig\.?|Figure) {fig_num})"
-    tab_pattern = rf"(?i)((?:Table|Tab\.?) {fig_num})"
+    fig_pattern = rf"(?i)((?:Fig\.?|Figure) {fig_num}(?!\d))"
+    tab_pattern = rf"(?i)((?:Table|Tab\.?) {fig_num}(?!\d))"
     regex = fig_pattern if type == "figure" else tab_pattern
 
     alignment = aligner.align(
@@ -66,7 +66,7 @@ def find_references(text: str, fig_num: str, caption_blacklist: str, type: Liter
 # Converter
 
 root = Path("../scicap_data")
-scicap_metadata = Path("../scicap_data/SciCap-Caption-All/train")
+scicap_metadata = Path("../scicap_data/SciCap-Caption-All")
 text_dir = Path("/data/kevin/arxiv/fulltext")
 references_dir = root / "references"
 
@@ -81,8 +81,12 @@ def process_file(json_file: Path):
     fig_num = re.search(r"(?:Figure|Table)(.+)-",
                         metadata["figure-ID"]).group(1)
     fulltext_file = text_dir / f"{paper_id}.txt"
+    references_file = root / "references" / json_file.name
 
     if not fulltext_file.exists():
+        print("Deleting", json_file.name, "because",
+              fulltext_file, "does not exist")
+        references_file.unlink(missing_ok=True)
         return
 
     with fulltext_file.open() as f:
@@ -93,7 +97,6 @@ def process_file(json_file: Path):
         text, fig_num, metadata["0-originally-extracted"], "figure" if "Figure" in metadata["figure-ID"] else "table")
 
     # Write to file
-    references_file = root / "references" / json_file.name
     with references_file.open("w") as f:
         json.dump({"references": references}, f)
 
@@ -105,7 +108,8 @@ def process_file(json_file: Path):
 
 
 pool = mp.Pool()
-for json_file in scicap_metadata.iterdir():
-    pool.apply_async(process_file, args=(json_file,))
+for split in ["val", "test", "train"]:
+    for json_file in (scicap_metadata / split).iterdir():
+        pool.apply_async(process_file, args=(json_file,))
 pool.close()
 pool.join()
