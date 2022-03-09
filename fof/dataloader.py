@@ -21,13 +21,12 @@ class ScicapDataset(Dataset):
                  transform: Callable,
                  limit: int = None,
                  tokenizer=None,
-                 caption_type="orig"):
+                 caption_type="orig",
+                 root=Path("./scicap_data")):
         self.transform = transform
         self.limit = limit
         self.tokenizer = tokenizer
         self.caption_type = caption_type
-
-        root = Path("./scicap_data")
         # split is 'train', 'test', or 'val'
         self.metadata_dir = root / "SciCap-Caption-All" / split  # every figure caption
         self.image_dir = root / "SciCap-No-Subfig-Img" / split
@@ -48,6 +47,8 @@ class ScicapDataset(Dataset):
         self.paper_metadata_file = root / 'arxiv-metadata-oai-snapshot.json'
         # Directory to find jsons
         self.paper_metadata_json_dir = root / 'metadata'
+
+        self.references_json_dir = root / 'references'
 
         # self.paper_metadata_id_to_json = None
 
@@ -125,6 +126,17 @@ class ScicapDataset(Dataset):
             abstract = js['abstract']
             title = js['title']
 
+        try:
+            with (self.references_json_dir / (metadata['figure-ID'].replace(".png", "") + '.json')).open() as f:
+                references = json.load(f)["references"]
+        except json.JSONDecodeError:
+            print("Failed to load references")
+            references = []
+
+        # Trim off the 200x200 window of each reference to 100x100
+        references = [ref[100:-100] for ref in references]
+        references = "[SEP]".join(references)
+
         if self.transform:
             figure = self.transform(figure)
 
@@ -134,10 +146,12 @@ class ScicapDataset(Dataset):
             caption = metadata["2-normalized"]["2-2-advanced-euqation-bracket"]["caption"]
 
         return {
+            "id": metadata["figure-ID"],
             "figure": figure,
             'abstract': abstract,
             'title': title,
             "labels": caption,
+            "references": references
         }
 
 
@@ -152,7 +166,9 @@ class ScicapDataModule(pl.LightningDataModule):
                     (0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
             ]),
             batch_size: int = 32,
-            limit: int = None, **kwargs):
+            limit: int = None,
+            num_workers: int = 32,
+            **kwargs):
         super().__init__()
 
         start = time.time()
@@ -169,13 +185,17 @@ class ScicapDataModule(pl.LightningDataModule):
             experiment, "val", transform, limit, tokenizer, **kwargs)
 
         print(f'Time taken: {time.time() - start}')
-        self.batch_size = batch_size
+        self.dataloader_args = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "pin_memory": True,
+        }
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.train_dset, shuffle=True, **self.dataloader_args)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.val_dset, **self.dataloader_args)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dset, batch_size=self.batch_size, num_workers=32, pin_memory=True)
+        return DataLoader(self.test_dset, **self.dataloader_args)

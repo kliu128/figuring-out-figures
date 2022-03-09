@@ -7,7 +7,7 @@ name = "pypi"
 torch = "==1.10.0"
 torchvision = "*"
 torchaudio = "*"
-pytorch-lightning = "*"
+pytorch-lightning = {git = "https://github.com/PyTorchLightning/pytorch-lightning"}
 einops = "*"
 torchtyping = "*"
 wandb = "*"
@@ -22,11 +22,13 @@ nltk = "*"
 rouge-score = "*"
 ujson = "*"
 ipdb = "*"
+ssw = "*"
 
 [dev-packages]
 autopep8 = "*"
 pytest = "*"
 jupyter = "*"
+jupyter-contrib-nbextensions = "*"
 
 [requires]
 python_version = "3.8"
