@@ -48,19 +48,18 @@ def main(args):
     epoch_callback = ModelCheckpoint(
         every_n_epochs=10)
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
-    swa_callback = pl.callbacks.StochasticWeightAveraging()
 
     if args.tpu_hacks:
         args.logdir = "./tb_logs"
 
     if args.pl_logger == "wandb":
         logger = WandbLogger(
-            name=args.exp, project="figuring-out-figures", log_model=True)
+            name=args.exp, project="figuring-out-figures", log_model=False)
     if args.pl_logger == "tb":
         logger = TensorBoardLogger(args.logdir, name=args.exp)
     trainer = pl.Trainer.from_argparse_args(
         args,
-        callbacks=[val_callback, epoch_callback, lr_monitor, swa_callback],
+        callbacks=[val_callback, epoch_callback, lr_monitor],
         logger=logger)
 
     dict_args = vars(args)

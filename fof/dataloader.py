@@ -189,11 +189,10 @@ class ScicapDataModule(pl.LightningDataModule):
             "batch_size": batch_size,
             "num_workers": num_workers,
             "pin_memory": True,
-            "shuffle": True
         }
 
     def train_dataloader(self):
-        return DataLoader(self.train_dset, **self.dataloader_args)
+        return DataLoader(self.train_dset, shuffle=True, **self.dataloader_args)
 
     def val_dataloader(self):
         return DataLoader(self.val_dset, **self.dataloader_args)

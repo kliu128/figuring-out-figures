@@ -7,6 +7,13 @@ from datasets import load_metric
 from torchtyping import TensorType
 
 
+def add_bool_arg(parser, name, default=False):
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('--' + name, dest=name, action='store_true')
+    group.add_argument('--no_' + name, dest=name, action='store_false')
+    parser.set_defaults(**{name: default})
+
+
 class ExtensibleEncoder(nn.Module):
     def __init__(self, device: str, vision_model: str, use_scibert: bool):
         super().__init__()
@@ -42,7 +49,10 @@ class ExtensibleEncoder(nn.Module):
 
 
 class EncoderDecoderModel(pl.LightningModule):
-    def __init__(self, text_model: str, vision_model: str, tpu_hacks: bool, use_scibert: bool, lr: float, **kwargs):
+    def __init__(self,
+                 text_model: str, vision_model: str, tpu_hacks: bool,
+                 use_scibert: bool, lr: float, lr_scheduler: str,
+                 use_references: bool, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
@@ -74,6 +84,8 @@ class EncoderDecoderModel(pl.LightningModule):
 
         self.tpu_hacks = tpu_hacks
         self.lr = lr
+        self.lr_scheduler = lr_scheduler
+        self.use_references = use_references
 
         # Use sacrebleu as a standard BLEU computer.
         self.bleu_metric = load_metric('sacrebleu')
@@ -85,19 +97,29 @@ class EncoderDecoderModel(pl.LightningModule):
         parser.add_argument("--text_model", type=str, default="distilgpt2")
         parser.add_argument("--vision_model", type=str,
                             default="openai/clip-vit-base-patch32")
-        parser.add_argument("--use_scibert", type=bool, default=False)
+        add_bool_arg(parser, "use_scibert", default=False)
+        add_bool_arg(parser, "use_references", default=False)
+        parser.add_argument("--lr_scheduler", type=str, default=None)
         return parent_parser
 
     def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"], TensorType["b", "len"]]:
         # (B, 3, 224, 224)
-        figure, labels, title, abstract = batch["figure"], batch["labels"], batch['title'], batch['abstract']
-        tokenized_metadata = self.metadata_tokenizer(
-            [f"{t} [SEP] {a}" for t, a in zip(title, abstract)],
-            add_special_tokens=True,
-            padding="max_length" if self.tpu_hacks else True,
-            max_length=512,
-            truncation=True,
-            return_tensors='pt').to(self.device)
+        figure, labels, title, abstract, references = batch["figure"], batch[
+            "labels"], batch['title'], batch['abstract'], batch['references']
+
+        if self.use_references:
+            # Allocate 100 char for title, 150 for abstract, the rest for references
+            metadata = [f"{t[:100]} [SEP] {a[:150]} [SEP] {r}" for t,
+                        a, r in zip(title, abstract, references)]
+        else:
+            metadata = [f"{t} [SEP] {a}" for t, a in zip(title, abstract)]
+
+        tokenized_metadata = self.metadata_tokenizer(metadata,
+                                                     add_special_tokens=True,
+                                                     padding="max_length" if self.tpu_hacks else True,
+                                                     max_length=512,
+                                                     truncation=True,
+                                                     return_tensors='pt').to(self.device)
         # Returns { "input_ids", "attention_mask" } but we can avoid attn mask
         # because VisionEncoderDecoder will generate it
         labels = self.text_tokenizer(
@@ -106,7 +128,6 @@ class EncoderDecoderModel(pl.LightningModule):
             truncation=True,
             return_tensors="pt").input_ids.to(self.device)
 
-        breakpoint()
         return figure, labels, tokenized_metadata
 
     def forward(self, image, labels, metadata):
@@ -175,10 +196,22 @@ class EncoderDecoderModel(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', verbose=True)
-        return {
-            "optimizer": optimizer,
-            # "lr_scheduler": scheduler,
-            # "monitor": "val/loss"
-        }
+        if self.lr_scheduler == "linear":
+            # Unstable, see https://github.com/PyTorchLightning/pytorch-lightning/pull/11599/files
+            training_steps = self.trainer.estimated_stepping_batches
+            print("Using linear learning rate scheduler")
+            scheduler = tr.get_scheduler(
+                "linear",
+                optimizer,
+                num_warmup_steps=0,
+                num_training_steps=training_steps)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    # linear scheduler decreases learning rate on every step
+                    "interval": "step",
+                }
+            }
+        else:
+            return optimizer
