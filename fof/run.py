@@ -34,6 +34,7 @@ def get_parser(args: List[str] = None):
     parser.add_argument("--load_checkpoint", type=str, default=None)
     parser.add_argument("--tpu_hacks", action="store_true", default=False)
     parser.add_argument("--logdir", type=str, default="/data/kevin/tb_logs")
+    parser.add_argument("--dataloader_workers", type=int, default=32)
     # Extract model name from temp args
     temp_args, _ = parser.parse_known_args(args)
 
@@ -73,6 +74,7 @@ def main(args):
         batch_size=args.batch_size,
         limit=args.limit,
         tokenizer=model.text_tokenizer,
+        num_workers=args.dataloader_workers,
         caption_type=args.caption_type)
 
     if args.mode == "train":
