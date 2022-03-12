@@ -1,11 +1,11 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import pytorch_lightning as pl
 import transformers as tr
 import torch
 import torch.nn as nn
 from datasets import load_metric
 from torchtyping import TensorType
-from deepspeed.ops.adam import DeepSpeedCPUAdam
+import math
 
 
 def add_bool_arg(parser, name, default=False):
@@ -13,6 +13,52 @@ def add_bool_arg(parser, name, default=False):
     group.add_argument('--' + name, dest=name, action='store_true')
     group.add_argument('--no_' + name, dest=name, action='store_false')
     parser.set_defaults(**{name: default})
+
+
+def estimated_stepping_batches(self) -> Union[int, float]:
+    r"""
+    Estimated stepping batches for the complete training inferred from DataLoaders, gradient
+    accumulation factor and distributed setup.
+    Examples::
+        def configure_optimizers(self):
+            optimizer = ...
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer, max_lr=1e-3, total_steps=self.trainer.estimated_stepping_batches
+            )
+            return [optimizer], [scheduler]
+    """
+    accumulation_scheduler = self.accumulation_scheduler
+
+    if accumulation_scheduler.epochs != [0]:
+        raise Exception(
+            "Estimated stepping batches cannot be computed with different"
+            " `accumulate_grad_batches` at different epochs."
+        )
+
+    # infinite training
+    if self.max_epochs == -1 and self.max_steps == -1:
+        return float("inf")
+
+    if self.train_dataloader is None:
+        print(
+            "Loading `train_dataloader` to estimate number of stepping batches.")
+        self.reset_train_dataloader()
+
+    total_batches = self.num_training_batches
+
+    # iterable dataset
+    if total_batches == float("inf"):
+        return self.max_steps
+
+    self.accumulate_grad_batches = accumulation_scheduler.get_accumulate_grad_batches(
+        self.current_epoch)
+    effective_batch_size = self.accumulate_grad_batches
+    max_estimated_steps = math.ceil(
+        total_batches / effective_batch_size) * max(self.max_epochs, 1)
+
+    max_estimated_steps = min(
+        max_estimated_steps, self.max_steps) if self.max_steps != -1 else max_estimated_steps
+    return max_estimated_steps
 
 
 class ExtensibleEncoder(nn.Module):
@@ -98,7 +144,6 @@ class EncoderDecoderModel(pl.LightningModule):
         self.use_references = use_references
         self.use_top_p_sampling = use_top_p_sampling
         # self.strategy = strategy
-        self.total_steps = -1  # Updated later in run.py
 
         # Use sacrebleu as a standard BLEU computer.
         self.bleu_metric = load_metric('sacrebleu')
@@ -224,7 +269,8 @@ class EncoderDecoderModel(pl.LightningModule):
         #     optimizer = DeepSpeedCPUAdam(self.parameters(), lr=self.lr)
         # else:
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
-        training_steps = self.total_steps
+        training_steps = estimated_stepping_batches(self.trainer)
+        print("Training steps:", training_steps)
 
         if self.lr_scheduler == "linear":
             print("Using linear learning rate scheduler")

@@ -1,8 +1,8 @@
-#autopep8: off
+# autopep8: off
 import sys; sys.path.append("./")
 # Post-mortem ipdb debugger
 import fof.debug
-#autopep8: on
+# autopep8: on
 from dotenv import load_dotenv
 import argparse
 import pytorch_lightning as pl
@@ -10,7 +10,8 @@ from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from fof.encdec import EncoderDecoderModel
 from fof.dataloader import ScicapDataModule
-from typing import List
+from typing import List, Union
+import math
 from pytorch_lightning.plugins import DeepSpeedPlugin
 
 
@@ -73,12 +74,6 @@ def main(args):
         limit=args.limit,
         tokenizer=model.text_tokenizer,
         caption_type=args.caption_type)
-
-    steps_per_epoch = len(datamodule.train_dataloader())
-    total_steps = steps_per_epoch * args.max_epochs
-    print("Estimating", total_steps, "steps",
-          "aka", steps_per_epoch, "per epoch")
-    model.total_steps = total_steps
 
     if args.mode == "train":
         trainer.tune(model, datamodule=datamodule)

@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "7887364a036ecb827e28a10bd7f3dd1bbe5eb4d0efc583552f748e752cf0a649"
+            "sha256": "3aab99dda5b626900c4ed08217fb2da5e21acbef61ff3a261ea3de47a5fe2f63"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -464,6 +464,13 @@
             ],
             "markers": "python_version >= '3.7'",
             "version": "==2022.2.0"
+        },
+        "future": {
+            "hashes": [
+                "sha256:b1bead90b70cf6ec3f0710ae53a525360fa360d306a86583adc6bf83a4db537d"
+            ],
+            "markers": "python_version >= '2.6' and python_version not in '3.0, 3.1, 3.2, 3.3'",
+            "version": "==0.18.2"
         },
         "gitdb": {
             "hashes": [
@@ -1254,11 +1261,11 @@
         },
         "pydeprecate": {
             "hashes": [
-                "sha256:d481116cc5d7f6c473e7c4be820efdd9b90a16b594b350276e9e66a6cb5bdd29",
-                "sha256:ed86b68ed837e6465245904a3de2f59bf9eef78ac7a2502ee280533d04802457"
+                "sha256:b5dd8c4c0535854b6a52936d1256883a940e3b02006fc7118b53027c0acde181",
+                "sha256:fa26870924d3475621c344045c2c01a16ba034113a902600c78e75b3fac5f72c"
             ],
             "markers": "python_version >= '3.6'",
-            "version": "==0.3.2"
+            "version": "==0.3.1"
         },
         "pygments": {
             "hashes": [
@@ -1320,8 +1327,12 @@
             "version": "==0.19.2"
         },
         "pytorch-lightning": {
-            "git": "https://github.com/PyTorchLightning/pytorch-lightning",
-            "ref": "4d74f379a52167ede26f24cd4c770db2d227d17c"
+            "hashes": [
+                "sha256:119e5a0ad0678444c0bbf95755da571e5e372ab12df7c6115ddd26e364a8ddfa",
+                "sha256:c86ed633ce8d25667797635db3ea1fe9fe6b51121d43d7031d5bdb4c5b046895"
+            ],
+            "index": "pypi",
+            "version": "==1.5.10"
         },
         "pytz": {
             "hashes": [
@@ -2149,7 +2160,7 @@
                 "sha256:9f50f446828eb9d45b267433fd3e9da8d801f614129124863f9c51ebceafb87d",
                 "sha256:b47250dd24f92b7dd6a0a8fc5244da14608f3ca90a5efcd37a3b1642fac9a375"
             ],
-            "markers": "python_version >= '3.7'",
+            "markers": "python_version < '3.10'",
             "version": "==3.7.0"
         }
     },
@@ -3086,7 +3097,7 @@
                 "sha256:9f50f446828eb9d45b267433fd3e9da8d801f614129124863f9c51ebceafb87d",
                 "sha256:b47250dd24f92b7dd6a0a8fc5244da14608f3ca90a5efcd37a3b1642fac9a375"
             ],
-            "markers": "python_version >= '3.7'",
+            "markers": "python_version < '3.10'",
             "version": "==3.7.0"
         }
     }

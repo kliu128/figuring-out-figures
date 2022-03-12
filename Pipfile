@@ -7,7 +7,7 @@ name = "pypi"
 torch = "==1.10.0"
 torchvision = "*"
 torchaudio = "*"
-pytorch-lightning = {git = "https://github.com/PyTorchLightning/pytorch-lightning"}
+pytorch-lightning = "==1.5.10"
 einops = "*"
 torchtyping = "*"
 wandb = "*"
