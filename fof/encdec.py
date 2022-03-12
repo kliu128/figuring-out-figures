@@ -56,7 +56,7 @@ class EncoderDecoderModel(pl.LightningModule):
     def __init__(self,
                  text_model: str, vision_model: str, tpu_hacks: bool,
                  use_scibert: bool, lr: float, lr_scheduler: str,
-                 use_references: bool, **kwargs):
+                 use_references: bool, use_top_p_sampling: bool, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
@@ -95,6 +95,7 @@ class EncoderDecoderModel(pl.LightningModule):
         self.lr = lr
         self.lr_scheduler = lr_scheduler
         self.use_references = use_references
+        self.use_top_p_sampling = use_top_p_sampling
 
         # Use sacrebleu as a standard BLEU computer.
         self.bleu_metric = load_metric('sacrebleu')
@@ -110,6 +111,7 @@ class EncoderDecoderModel(pl.LightningModule):
                             default="openai/clip-vit-base-patch32")
         add_bool_arg(parser, "use_scibert", default=False)
         add_bool_arg(parser, "use_references", default=False)
+        add_bool_arg(parser, "use_top_p_sampling", default=False)
         parser.add_argument("--lr_scheduler", type=str, default=None)
         return parent_parser
 
@@ -175,9 +177,18 @@ class EncoderDecoderModel(pl.LightningModule):
         image, labels, title = self.process_batch(batch)
 
         output = self(image, labels, title)
+
+        sample_args = {
+            "top_k": 50
+        } if self.use_top_p_sampling else {
+            "top_p": 0.9,
+            "top_k": 0
+        }
+
         # Use sampling to generate sentences
         generated = self.model.generate(
             image, metadata=title, return_dict_in_generate=True, do_sample=True,
+            **sample_args,
             bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
         decoded: List[str] = self.text_tokenizer.batch_decode(
             generated.sequences, skip_special_tokens=True)
