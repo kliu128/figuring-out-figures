@@ -206,8 +206,10 @@ class EncoderDecoderModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx: int):
         output = self(*self.process_batch(batch))
-        self.log("train/loss", output.loss)
-        self.log("train/perplexity", torch.exp(output.loss))
+        batch_size = len(batch["labels"])
+        self.log("train/loss", output.loss, batch_size=batch_size)
+        self.log("train/perplexity", torch.exp(output.loss),
+                 batch_size=batch_size)
 
         # Print samples for debugging
         # generated = self.model.generate(
@@ -223,6 +225,7 @@ class EncoderDecoderModel(pl.LightningModule):
         if self.tpu_hacks:
             return
         image, labels, title = self.process_batch(batch)
+        batch_size = len(labels)
 
         output = self(image, labels, title)
 
@@ -249,8 +252,9 @@ class EncoderDecoderModel(pl.LightningModule):
         self.rouge_metric.add_batch(predictions=decoded, references=labels)
 
         # Logs average val loss
-        self.log("val/loss", output.loss)
-        self.log("val/perplexity", torch.exp(output.loss))
+        self.log("val/loss", output.loss, batch_size=batch_size)
+        self.log("val/perplexity", torch.exp(output.loss),
+                 batch_size=batch_size)
 
         return output.loss
 
