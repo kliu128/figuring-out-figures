@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from datasets import load_metric
 from torchtyping import TensorType
+from deepspeed.ops.adam import DeepSpeedCPUAdam
 
 
 def add_bool_arg(parser, name, default=False):
@@ -96,6 +97,8 @@ class EncoderDecoderModel(pl.LightningModule):
         self.lr_scheduler = lr_scheduler
         self.use_references = use_references
         self.use_top_p_sampling = use_top_p_sampling
+        # self.strategy = strategy
+        self.total_steps = -1  # Updated later in run.py
 
         # Use sacrebleu as a standard BLEU computer.
         self.bleu_metric = load_metric('sacrebleu')
@@ -217,10 +220,13 @@ class EncoderDecoderModel(pl.LightningModule):
                  ['rouge1'].mid.fmeasure)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        # if "deepspeed" in self.strategy:
+        #     optimizer = DeepSpeedCPUAdam(self.parameters(), lr=self.lr)
+        # else:
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        training_steps = self.total_steps
+
         if self.lr_scheduler == "linear":
-            # Unstable, see https://github.com/PyTorchLightning/pytorch-lightning/pull/11599/files
-            training_steps = self.trainer.estimated_stepping_batches
             print("Using linear learning rate scheduler")
             scheduler = tr.get_scheduler(
                 "linear",
@@ -232,6 +238,18 @@ class EncoderDecoderModel(pl.LightningModule):
                 "lr_scheduler": {
                     "scheduler": scheduler,
                     # linear scheduler decreases learning rate on every step
+                    "interval": "step",
+                }
+            }
+        elif self.lr_scheduler == "onecycle":
+            print("Using onecycle learning rate scheduler")
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer, max_lr=self.lr, total_steps=training_steps)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    # onecycle scheduler decreases learning rate on every step
                     "interval": "step",
                 }
             }

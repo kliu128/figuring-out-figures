@@ -23,6 +23,7 @@ rouge-score = "*"
 ujson = "*"
 ipdb = "*"
 ssw = "*"
+deepspeed = "*"
 
 [dev-packages]
 autopep8 = "*"

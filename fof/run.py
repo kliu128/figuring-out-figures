@@ -11,6 +11,7 @@ from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from fof.encdec import EncoderDecoderModel
 from fof.dataloader import ScicapDataModule
 from typing import List
+from pytorch_lightning.plugins import DeepSpeedPlugin
 
 
 load_dotenv()
@@ -72,6 +73,12 @@ def main(args):
         limit=args.limit,
         tokenizer=model.text_tokenizer,
         caption_type=args.caption_type)
+
+    steps_per_epoch = len(datamodule.train_dataloader())
+    total_steps = steps_per_epoch * args.max_epochs
+    print("Estimating", total_steps, "steps",
+          "aka", steps_per_epoch, "per epoch")
+    model.total_steps = total_steps
 
     if args.mode == "train":
         trainer.tune(model, datamodule=datamodule)

@@ -6,6 +6,7 @@
 # gitignore template for Jupyter Notebooks
 # website: http://jupyter.org/
 checkpoints
+scicap_data.tar.gz
 
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
