@@ -1,7 +1,7 @@
 # autopep8: off
 import sys; sys.path.append("./")
 # Post-mortem ipdb debugger
-import fof.debug
+# import fof.debug
 # autopep8: on
 from dotenv import load_dotenv
 import argparse
