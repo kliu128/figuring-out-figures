@@ -62,7 +62,8 @@ def estimated_stepping_batches(self) -> Union[int, float]:
 
 
 class ExtensibleEncoder(nn.Module):
-    def __init__(self, device: str, vision_model: str, use_scibert: bool):
+    def __init__(self, device: str, vision_model: str, use_vision_encoder: bool,
+                 use_scibert: bool, freeze_scibert: bool):
         super().__init__()
         if "clip" in vision_model:
             self.clip = tr.CLIPVisionModel.from_pretrained(vision_model)
@@ -72,25 +73,34 @@ class ExtensibleEncoder(nn.Module):
         self.main_input_name = self.clip.main_input_name
         self.device = device
 
+        self.use_vision_encoder = use_vision_encoder
+
         self.use_scibert = use_scibert
         if self.use_scibert:
             # SCIBERT encoder for metadata
             self.metadata_encoder = tr.AutoModel.from_pretrained(
                 'allenai/scibert_scivocab_uncased')
 
-            # Freeze SCIBERT params
-            for param in self.metadata_encoder.base_model.parameters():
-                param.requires_grad = False
+            self.freeze_scibert = freeze_scibert
+            if freeze_scibert:
+                # Freeze SCIBERT params
+                for param in self.metadata_encoder.base_model.parameters():
+                    param.requires_grad = False
 
     def forward(self, pixel_values, metadata=None, *args, **kwargs):
-        image_output = self.clip(pixel_values, *args, **kwargs)
+        if self.use_vision_encoder:
+            image_output = self.clip(pixel_values, *args, **kwargs)
         if not self.use_scibert:
-            return image_output
+            return image_output  # This must work due to the assert placed earlier
 
         metadata_output = self.metadata_encoder(
             input_ids=metadata["input_ids"],
             attention_mask=metadata["attention_mask"],
             token_type_ids=metadata["token_type_ids"])
+
+        if not self.use_vision_encoder:
+            return metadata_output
+
         # This line should be technically useless but included out of superstition
         image_output.pooler_output *= metadata_output.pooler_output
         # Concatenate on the sequence dimension
@@ -102,13 +112,16 @@ class ExtensibleEncoder(nn.Module):
 class EncoderDecoderModel(pl.LightningModule):
     def __init__(self,
                  text_model: str, vision_model: str, tpu_hacks: bool,
-                 use_scibert: bool, lr: float, lr_scheduler: str,
-                 use_references: bool, use_top_p_sampling: bool, **kwargs):
+                 use_vision_encoder: bool, use_scibert: bool, freeze_scibert: bool, 
+                 lr: float, lr_scheduler: str, use_references: bool,
+                 use_top_p_sampling: bool, **kwargs):
         super().__init__()
         self.save_hyperparameters()
-
+        assert use_vision_encoder or use_scibert, \
+            'Encoder missing; must use at least some form of vision encoder or text encoder'
         encoder = ExtensibleEncoder(
-            self.device, vision_model=vision_model, use_scibert=use_scibert)
+            self.device, vision_model=vision_model, use_vision_encoder=use_vision_encoder,
+            use_scibert=use_scibert, freeze_scibert=freeze_scibert)
 
         # Freeze encoder
         # for param in encoder.clip.base_model.parameters():
@@ -119,8 +132,10 @@ class EncoderDecoderModel(pl.LightningModule):
 
         model = tr.VisionEncoderDecoderModel(
             encoder=encoder.clip, decoder=decoder)
-        model.encoder = encoder
-        # use GPT2's eos_token as the pad as well as eos token
+        model.encoder = encoder  # Loophole to make VisionEncoder work with custom encoder
+        if not use_vision_encoder:
+            del model.encoder.clip
+        # use GPT2's eos_aaaatoken as the pad as well as eos token
         # TODO is this line correct?
         model.config.decoder_start_token_id = model.config.decoder.bos_token_id
         model.config.eos_token_id = model.config.decoder.eos_token_id
@@ -158,8 +173,10 @@ class EncoderDecoderModel(pl.LightningModule):
         parser.add_argument("--vision_model", type=str,
                             default="openai/clip-vit-base-patch32")
         add_bool_arg(parser, "use_scibert", default=False)
+        add_bool_arg(parser, 'freeze_scibert', default=True)
         add_bool_arg(parser, "use_references", default=False)
         add_bool_arg(parser, "use_top_p_sampling", default=False)
+        add_bool_arg(parser, 'use_vision_encoder', default=True)
         parser.add_argument("--lr_scheduler", type=str, default=None)
         return parent_parser
 
