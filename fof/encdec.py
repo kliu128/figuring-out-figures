@@ -273,10 +273,10 @@ class EncoderDecoderModel(pl.LightningModule):
         #     optimizer = DeepSpeedCPUAdam(self.parameters(), lr=self.lr)
         # else:
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
-        training_steps = estimated_stepping_batches(self.trainer)
-        print("Training steps:", training_steps)
 
         if self.lr_scheduler == "linear":
+            training_steps = estimated_stepping_batches(self.trainer)
+            print("Training steps:", training_steps)
             print("Using linear learning rate scheduler")
             scheduler = tr.get_scheduler(
                 "linear",
@@ -292,6 +292,8 @@ class EncoderDecoderModel(pl.LightningModule):
                 }
             }
         elif self.lr_scheduler == "onecycle":
+            training_steps = estimated_stepping_batches(self.trainer)
+            print("Training steps:", training_steps)
             print("Using onecycle learning rate scheduler")
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 optimizer, max_lr=self.lr, total_steps=training_steps)
