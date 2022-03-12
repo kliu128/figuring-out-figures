@@ -63,7 +63,7 @@ def estimated_stepping_batches(self) -> Union[int, float]:
 
 class ExtensibleEncoder(nn.Module):
     def __init__(self, device: str, vision_model: str, use_vision_encoder: bool,
-                 use_scibert: bool, freeze_scibert: bool):
+                 use_scibert: bool, freeze_scibert: bool, text_dropout_p: float):
         super().__init__()
         if "clip" in vision_model:
             self.clip = tr.CLIPVisionModel.from_pretrained(vision_model)
@@ -74,8 +74,8 @@ class ExtensibleEncoder(nn.Module):
         self.device = device
 
         self.use_vision_encoder = use_vision_encoder
-
         self.use_scibert = use_scibert
+
         if self.use_scibert:
             # SCIBERT encoder for metadata
             self.metadata_encoder = tr.AutoModel.from_pretrained(
@@ -87,6 +87,9 @@ class ExtensibleEncoder(nn.Module):
                 for param in self.metadata_encoder.base_model.parameters():
                     param.requires_grad = False
 
+        # Dropout for text
+        self.text_dropout = nn.Dropout(p=text_dropout_p)
+
     def forward(self, pixel_values, metadata=None, *args, **kwargs):
         if self.use_vision_encoder:
             image_output = self.clip(pixel_values, *args, **kwargs)
@@ -97,6 +100,9 @@ class ExtensibleEncoder(nn.Module):
             input_ids=metadata["input_ids"],
             attention_mask=metadata["attention_mask"],
             token_type_ids=metadata["token_type_ids"])
+
+        metadata_output.last_hidden_state = self.text_dropout(
+            metadata_output.last_hidden_state)
 
         if not self.use_vision_encoder:
             return metadata_output
@@ -112,16 +118,16 @@ class ExtensibleEncoder(nn.Module):
 class EncoderDecoderModel(pl.LightningModule):
     def __init__(self,
                  text_model: str, vision_model: str, tpu_hacks: bool,
-                 use_vision_encoder: bool, use_scibert: bool, freeze_scibert: bool, 
+                 use_vision_encoder: bool, use_scibert: bool, freeze_scibert: bool,
                  lr: float, lr_scheduler: str, use_references: bool,
-                 use_top_p_sampling: bool, **kwargs):
+                 use_top_p_sampling: bool, text_dropout_p: float, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         assert use_vision_encoder or use_scibert, \
             'Encoder missing; must use at least some form of vision encoder or text encoder'
         encoder = ExtensibleEncoder(
             self.device, vision_model=vision_model, use_vision_encoder=use_vision_encoder,
-            use_scibert=use_scibert, freeze_scibert=freeze_scibert)
+            use_scibert=use_scibert, freeze_scibert=freeze_scibert, text_dropout_p=text_dropout_p)
 
         # Freeze encoder
         # for param in encoder.clip.base_model.parameters():
@@ -178,6 +184,7 @@ class EncoderDecoderModel(pl.LightningModule):
         add_bool_arg(parser, "use_top_p_sampling", default=False)
         add_bool_arg(parser, 'use_vision_encoder', default=True)
         parser.add_argument("--lr_scheduler", type=str, default=None)
+        parser.add_argument("--text_dropout_p", type=float, default=0)
         return parent_parser
 
     def process_batch(self, batch) -> Tuple[TensorType["b", 3, 224, 224], TensorType["b", "len"], TensorType["b", "len"]]:
