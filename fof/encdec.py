@@ -127,39 +127,47 @@ class EncoderDecoderModel(pl.LightningModule):
                  text_model: str, vision_model: str, tpu_hacks: bool,
                  use_scibert: bool,
                  lr: float, lr_scheduler: str, use_references: bool,
-                 use_top_p_sampling: bool, freeze_scibert: bool = True, text_dropout_p: float = 0, use_vision_encoder: bool = True,  **kwargs):
+                 use_top_p_sampling: bool, freeze_scibert: bool = True,
+                 text_dropout_p: float = 0, use_vision_encoder: bool = True,
+                 use_reference_baseline: bool = False,  **kwargs):
         super().__init__()
         self.save_hyperparameters()
-        assert use_vision_encoder or use_scibert, \
-            'Encoder missing; must use at least some form of vision encoder or text encoder'
-        encoder = ExtensibleEncoder(
-            self.device, vision_model=vision_model, use_vision_encoder=use_vision_encoder,
-            use_scibert=use_scibert, freeze_scibert=freeze_scibert, text_dropout_p=text_dropout_p)
+        assert use_vision_encoder or use_scibert or use_reference_baseline, \
+            'Encoder missing; must use at least some form of vision encoder or text encoder, or must be testing the reference baseline.'
 
-        # Freeze encoder
-        # for param in encoder.clip.base_model.parameters():
-        #     param.requires_grad = False
+        self.use_reference_baseline = use_reference_baseline
+        if self.use_reference_baseline:
+            assert not use_vision_encoder and not use_scibert, \
+                'When using reference baseline, vision encoder and scibert should not be active'
+        else:
+            encoder = ExtensibleEncoder(
+                self.device, vision_model=vision_model, use_vision_encoder=use_vision_encoder,
+                use_scibert=use_scibert, freeze_scibert=freeze_scibert, text_dropout_p=text_dropout_p)
 
-        decoder = tr.AutoModelForCausalLM.from_pretrained(
-            text_model, add_cross_attention=True)
+            # Freeze encoder
+            # for param in encoder.clip.base_model.parameters():
+            #     param.requires_grad = False
 
-        model = tr.VisionEncoderDecoderModel(
-            encoder=encoder.clip, decoder=decoder)
-        model.encoder = encoder  # Loophole to make VisionEncoder work with custom encoder
-        if not use_vision_encoder:
-            del model.encoder.clip
-        # use GPT2's eos_aaaatoken as the pad as well as eos token
-        # TODO is this line correct?
-        model.config.decoder_start_token_id = model.config.decoder.bos_token_id
-        model.config.eos_token_id = model.config.decoder.eos_token_id
-        model.config.pad_token_id = model.config.eos_token_id
+            decoder = tr.AutoModelForCausalLM.from_pretrained(
+                text_model, add_cross_attention=True)
 
-        self.model = model
-        self.image_processor = tr.CLIPFeatureExtractor(
-            # Skip resize since the datamodule already resized it
-            do_resize=False,
-            do_center_crop=False,
-        )
+            model = tr.VisionEncoderDecoderModel(
+                encoder=encoder.clip, decoder=decoder)
+            model.encoder = encoder  # Loophole to make VisionEncoder work with custom encoder
+            if not use_vision_encoder:
+                del model.encoder.clip
+            # use GPT2's eos_aaaatoken as the pad as well as eos token
+            # TODO is this line correct?
+            model.config.decoder_start_token_id = model.config.decoder.bos_token_id
+            model.config.eos_token_id = model.config.decoder.eos_token_id
+            model.config.pad_token_id = model.config.eos_token_id
+
+            self.model = model
+            self.image_processor = tr.CLIPFeatureExtractor(
+                # Skip resize since the datamodule already resized it
+                do_resize=False,
+                do_center_crop=False,
+            )
         self.text_tokenizer = tr.AutoTokenizer.from_pretrained(text_model)
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
@@ -190,6 +198,7 @@ class EncoderDecoderModel(pl.LightningModule):
         add_bool_arg(parser, "use_references", default=False)
         add_bool_arg(parser, "use_top_p_sampling", default=False)
         add_bool_arg(parser, 'use_vision_encoder', default=True)
+        add_bool_arg(parser, 'use_reference_baseline', default=False)
         parser.add_argument("--lr_scheduler", type=str, default=None)
         parser.add_argument("--text_dropout_p", type=float, default=0)
         return parent_parser
@@ -243,6 +252,8 @@ class EncoderDecoderModel(pl.LightningModule):
         return decoded, labels
 
     def forward(self, image, labels, metadata):
+        if self.use_reference_baseline:
+            return
         output = self.model(
             pixel_values=image,
             # Decoder input ids and attention masks are automatically generated
@@ -256,6 +267,8 @@ class EncoderDecoderModel(pl.LightningModule):
         return output
 
     def training_step(self, batch, batch_idx: int):
+        if self.use_reference_baseline:
+            return
         output = self(*self.process_batch(batch))
         batch_size = len(batch["labels"])
         self.log("train/loss", output.loss, batch_size=batch_size)
@@ -276,23 +289,47 @@ class EncoderDecoderModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx: int):
         if self.tpu_hacks:
             return
-        image, labels, title = self.process_batch(batch)
-        batch_size = len(labels)
+        if self.use_reference_baseline:
+            decoded = []
+            for reference in batch['references']:
+                first_sep = reference.find('.')
+                spliced_reference_len = len(reference[:first_sep])
+                spliced_reference = reference[:spliced_reference_len]
+                decoded.append(spliced_reference)
+            labels = batch['labels']
+        else:
+            image, labels, title = self.process_batch(batch)
+            batch_size = len(labels)
 
-        output = self(image, labels, title)
+            output = self(image, labels, title)
+
+            sample_args = {
+                "top_k": 50
+            } if self.use_top_p_sampling else {
+                "top_p": 0.9,
+                "top_k": 0
+            }
+
+            # Use sampling to generate sentences
+            generated = self.model.generate(
+                image, metadata=title, return_dict_in_generate=True, do_sample=True,
+                **sample_args,
+                bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
+            decoded: List[str] = self.text_tokenizer.batch_decode(
+                generated.sequences, skip_special_tokens=True)
+            labels: List[str] = self.text_tokenizer.batch_decode(
+                labels, skip_special_tokens=True)
+            # Logs average val loss
+            self.log("val/loss", output.loss, batch_size=batch_size)
+            self.log("val/perplexity", torch.exp(output.loss),
+                     batch_size=batch_size)
+            return output.loss
 
         # Compute metrics (queue batch to compute metrics later)
         decoded, labels = self.run_sampling_batch(image, labels, title)
         self.bleu_metric.add_batch(predictions=decoded, references=[
                                    [label] for label in labels])
         self.rouge_metric.add_batch(predictions=decoded, references=labels)
-
-        # Logs average val loss
-        self.log("val/loss", output.loss, batch_size=batch_size)
-        self.log("val/perplexity", torch.exp(output.loss),
-                 batch_size=batch_size)
-
-        return output.loss
 
     def validation_epoch_end(self, outputs):
         if self.tpu_hacks:
