@@ -323,10 +323,10 @@ class EncoderDecoderModel(pl.LightningModule):
             self.log("val/loss", output.loss, batch_size=batch_size)
             self.log("val/perplexity", torch.exp(output.loss),
                      batch_size=batch_size)
-            return output.loss
+            decoded, labels = self.run_sampling_batch(image, labels, title)
+            # return output.loss
+            # Compute metrics (queue batch to compute metrics later)
 
-        # Compute metrics (queue batch to compute metrics later)
-        decoded, labels = self.run_sampling_batch(image, labels, title)
         self.bleu_metric.add_batch(predictions=decoded, references=[
                                    [label] for label in labels])
         self.rouge_metric.add_batch(predictions=decoded, references=labels)
@@ -346,23 +346,33 @@ class EncoderDecoderModel(pl.LightningModule):
     def test_step(self, batch, batch_idx: int):
         if self.tpu_hacks:
             return
-        image, labels, title = self.process_batch(batch)
-        batch_size = len(labels)
+        if self.use_reference_baseline:
+            decoded = []
+            for reference in batch['references']:
+                first_sep = reference.find('.')
+                spliced_reference_len = len(reference[:first_sep])
+                spliced_reference = reference[:spliced_reference_len]
+                decoded.append(spliced_reference)
+            labels = batch['labels']
+        else:
+            image, labels, title = self.process_batch(batch)
+            batch_size = len(labels)
 
-        output = self(image, labels, title)
+            output = self(image, labels, title)
 
-        # Compute metrics (queue batch to compute metrics later)
-        decoded, labels = self.run_sampling_batch(image, labels, title)
+            # Compute metrics (queue batch to compute metrics later)
+            decoded, labels = self.run_sampling_batch(image, labels, title)
+
+            # Logs average val loss
+            self.log("test/loss", output.loss, batch_size=batch_size)
+            self.log("test/perplexity", torch.exp(output.loss),
+                     batch_size=batch_size)
+
         self.bleu_metric.add_batch(predictions=decoded, references=[
                                    [label] for label in labels])
         self.rouge_metric.add_batch(predictions=decoded, references=labels)
 
-        # Logs average val loss
-        self.log("test/loss", output.loss, batch_size=batch_size)
-        self.log("test/perplexity", torch.exp(output.loss),
-                 batch_size=batch_size)
-
-        return output.loss
+        # return output.loss
 
     def test_epoch_end(self, outputs):
         if self.tpu_hacks:

@@ -21,7 +21,7 @@ load_dotenv()
 def get_parser(args: List[str] = None):
     parser = argparse.ArgumentParser()
     parser = pl.Trainer.add_argparse_args(parser)
-    parser.add_argument("mode", choices=["train", "validate"])
+    parser.add_argument("mode", choices=["train", "validate", 'test'])
     parser.add_argument("--exp", default="x")
     parser.add_argument("--model", type=str,
                         default="encdec", choices=["encdec"])
