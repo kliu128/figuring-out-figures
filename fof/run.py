@@ -47,9 +47,9 @@ def get_parser(args: List[str] = None):
 
 def main(args):
     val_callback = ModelCheckpoint(
-        save_top_k=3, mode="min", monitor="val/loss")
+        save_top_k=3, mode="max", monitor="val/bleu_score")
     epoch_callback = ModelCheckpoint(
-        every_n_epochs=10)
+        save_last=True)
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
 
     if args.tpu_hacks:
