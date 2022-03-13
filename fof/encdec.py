@@ -112,17 +112,22 @@ class ExtensibleEncoder(nn.Module):
         # This line should be technically useless but included out of superstition
         # image_output.pooler_output *= metadata_output.pooler_output
         # Concatenate on the sequence dimension
-        image_output.last_hidden_state = torch.cat(
-            [image_output.last_hidden_state, self.projector(metadata_output.last_hidden_state)], dim=1)
+
+        if hasattr(self, "projector"):
+            image_output.last_hidden_state = torch.cat(
+                [image_output.last_hidden_state, self.projector(metadata_output.last_hidden_state)], dim=1)
+        else:
+            image_output.last_hidden_state = torch.cat(
+                [image_output.last_hidden_state, metadata_output.last_hidden_state], dim=1)
         return image_output
 
 
 class EncoderDecoderModel(pl.LightningModule):
     def __init__(self,
                  text_model: str, vision_model: str, tpu_hacks: bool,
-                 use_vision_encoder: bool, use_scibert: bool, freeze_scibert: bool,
+                 use_scibert: bool,
                  lr: float, lr_scheduler: str, use_references: bool,
-                 use_top_p_sampling: bool, text_dropout_p: float, **kwargs):
+                 use_top_p_sampling: bool, freeze_scibert: bool = True, text_dropout_p: float = 0, use_vision_encoder: bool = True,  **kwargs):
         super().__init__()
         self.save_hyperparameters()
         assert use_vision_encoder or use_scibert, \
@@ -267,6 +272,7 @@ class EncoderDecoderModel(pl.LightningModule):
 
         return output.loss
 
+    # Validation evaluation
     def validation_step(self, batch, batch_idx: int):
         if self.tpu_hacks:
             return
@@ -295,8 +301,42 @@ class EncoderDecoderModel(pl.LightningModule):
         # Compute over all batches
         self.log("val/bleu_score",
                  self.bleu_metric.compute(lowercase=True)['score'])
-        self.log("val/rouge_score", self.rouge_metric.compute()
-                 ['rouge1'].mid.fmeasure)
+        rouge = self.rouge_metric.compute()
+        self.log("val/rouge_score", rouge["rouge1"].mid.fmeasure)
+        self.log("val/rouge_L_score", rouge['rougeL'].mid.fmeasure)
+
+    # Test evaluation
+    def test_step(self, batch, batch_idx: int):
+        if self.tpu_hacks:
+            return
+        image, labels, title = self.process_batch(batch)
+        batch_size = len(labels)
+
+        output = self(image, labels, title)
+
+        # Compute metrics (queue batch to compute metrics later)
+        decoded, labels = self.run_sampling_batch(image, labels, title)
+        self.bleu_metric.add_batch(predictions=decoded, references=[
+                                   [label] for label in labels])
+        self.rouge_metric.add_batch(predictions=decoded, references=labels)
+
+        # Logs average val loss
+        self.log("test/loss", output.loss, batch_size=batch_size)
+        self.log("test/perplexity", torch.exp(output.loss),
+                 batch_size=batch_size)
+
+        return output.loss
+
+    def test_epoch_end(self, outputs):
+        if self.tpu_hacks:
+            return
+
+        # Compute over all batches
+        self.log("test/bleu_score",
+                 self.bleu_metric.compute(lowercase=True)['score'])
+        rouge = self.rouge_metric.compute()
+        self.log("test/rouge_score", rouge["rouge1"].mid.fmeasure)
+        self.log("test/rouge_L_score", rouge['rougeL'].mid.fmeasure)
 
     def configure_optimizers(self):
         # if "deepspeed" in self.strategy:
