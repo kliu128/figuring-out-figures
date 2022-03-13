@@ -87,6 +87,8 @@ class ExtensibleEncoder(nn.Module):
                 for param in self.metadata_encoder.base_model.parameters():
                     param.requires_grad = False
 
+        if vision_model == "openai/clip-vit-large-patch14":
+            self.projector = nn.Linear(768, 1024)
         # Dropout for text
         self.text_dropout = nn.Dropout(p=text_dropout_p)
 
@@ -108,10 +110,10 @@ class ExtensibleEncoder(nn.Module):
             return metadata_output
 
         # This line should be technically useless but included out of superstition
-        image_output.pooler_output *= metadata_output.pooler_output
+        # image_output.pooler_output *= metadata_output.pooler_output
         # Concatenate on the sequence dimension
         image_output.last_hidden_state = torch.cat(
-            [image_output.last_hidden_state, metadata_output.last_hidden_state], dim=1)
+            [image_output.last_hidden_state, self.projector(metadata_output.last_hidden_state)], dim=1)
         return image_output
 
 
@@ -215,6 +217,26 @@ class EncoderDecoderModel(pl.LightningModule):
 
         return figure, labels, tokenized_metadata
 
+    def run_sampling_batch(self, image, labels, metadata):
+        sample_args = {
+            "top_k": 50
+        } if self.use_top_p_sampling else {
+            "top_p": 0.9,
+            "top_k": 0
+        }
+
+        # Use sampling to generate sentences
+        generated = self.model.generate(
+            image, metadata=metadata, return_dict_in_generate=True, do_sample=True,
+            **sample_args,
+            bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
+        decoded: List[str] = self.text_tokenizer.batch_decode(
+            generated.sequences, skip_special_tokens=True)
+        labels: List[str] = self.text_tokenizer.batch_decode(
+            labels, skip_special_tokens=True)
+
+        return decoded, labels
+
     def forward(self, image, labels, metadata):
         output = self.model(
             pixel_values=image,
@@ -253,24 +275,8 @@ class EncoderDecoderModel(pl.LightningModule):
 
         output = self(image, labels, title)
 
-        sample_args = {
-            "top_k": 50
-        } if self.use_top_p_sampling else {
-            "top_p": 0.9,
-            "top_k": 0
-        }
-
-        # Use sampling to generate sentences
-        generated = self.model.generate(
-            image, metadata=title, return_dict_in_generate=True, do_sample=True,
-            **sample_args,
-            bos_token_id=self.text_tokenizer.bos_token_id, eos_token_id=self.text_tokenizer.eos_token_id)
-        decoded: List[str] = self.text_tokenizer.batch_decode(
-            generated.sequences, skip_special_tokens=True)
-        labels: List[str] = self.text_tokenizer.batch_decode(
-            labels, skip_special_tokens=True)
-
         # Compute metrics (queue batch to compute metrics later)
+        decoded, labels = self.run_sampling_batch(image, labels, title)
         self.bleu_metric.add_batch(predictions=decoded, references=[
                                    [label] for label in labels])
         self.rouge_metric.add_batch(predictions=decoded, references=labels)
